@@ -144,7 +144,7 @@
     <div class="card boardCard">
       <div class="topbar">
         <div>
-          <h1>9×9 正方形提子棋v1.1</h1>
+          <h1>9×9 正方形提子棋v1.2</h1>
           <div class="sub">黑棋先行（玩家＝黑），白棋為隨機 CPU。每回合：下棋 → 提子 → 結束回合。</div>
         </div>
         <div class="scoreRow">
@@ -393,7 +393,7 @@
       if (availableSquares.length === 0){
         logLine(`${turnName(turn)} 沒有可用正方形，本回合無法提子。可直接結束回合。`);
       } else {
-        logLine(`請先在右側選一個正方形，再點一顆白子提走並得分；或跳過提子。`);
+        logLine(`請先在右側選一個正方形，按「提子（移除4子）」得分；或跳過提子。`);
       }
       return;
     }
@@ -438,8 +438,7 @@
         return;
       }
 
-      // pick a random square, capture a random opponent stone
-      const sq = availableSquares[Math.floor(Math.random()*availableSquares.length)];
+      const sq = availableSquares[0];
       sq.cells.forEach(c => {
         if (board[c.y][c.x] === 2) board[c.y][c.x] = 0;
       });
@@ -465,16 +464,33 @@
   }
 
   function cpuPlace(){
-    // pick random empty
-    const empties = [];
-    for (let y=0; y<N; y++) for (let x=0; x<N; x++) if (board[y][x] === 0) empties.push({x,y});
-    if (empties.length === 0){
-      logLine("棋盤已滿。");
-      return;
+    // 1) Try to complete its own imminent square (3 white + 1 empty), highest score first
+    const my = imminentMoves(2);
+    let pick = pickBestFromMoveMap(my);
+  
+    // 2) Otherwise block opponent imminent square (3 black + 1 empty), highest score first
+    if (!pick) {
+      const opp = imminentMoves(1);
+      pick = pickBestFromMoveMap(opp);
     }
-    const p = empties[Math.floor(Math.random()*empties.length)];
-    board[p.y][p.x] = 2;
-    logLine(`白方（CPU）下在 (${p.x+1},${p.y+1})。`);
+  
+    // 3) Otherwise random empty
+    if (!pick) {
+      const empties = [];
+      for (let y=0; y<N; y++) for (let x=0; x<N; x++) if (board[y][x] === 0) empties.push({x,y});
+      if (empties.length === 0){
+        logLine("棋盤已滿。");
+        return;
+      }
+      pick = empties[Math.floor(Math.random()*empties.length)];
+    }
+  
+    board[pick.y][pick.x] = 2;
+    // 額外 log：如果是完成/阻擋可以看出來
+    const note =
+      my.has(keyXY(pick.x, pick.y)) ? `（完成正方形機會，最高面積 ${my.get(keyXY(pick.x,pick.y)).bestArea}）` :
+      imminentMoves(1).has(keyXY(pick.x, pick.y)) ? `（阻擋黑方機會）` : "";
+    logLine(`白方（CPU）下在 (${pick.x+1},${pick.y+1})。${note}`);
     renderAll();
   }
 
@@ -503,7 +519,87 @@
     elLog.textContent += (elLog.textContent ? "\n" : "") + s;
     elLog.scrollTop = elLog.scrollHeight;
   }
-
+  const ALL_SQUARES = (() => {
+    const m = new Map(); // canon -> {cells, area, key}
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        for (let dx = -8; dx <= 8; dx++) {
+          for (let dy = -8; dy <= 8; dy++) {
+            if (dx === 0 && dy === 0) continue;
+  
+            const p = { x, y };
+            const q = { x: x + dx, y: y + dy };
+            if (!inBoard(q.x, q.y)) continue;
+  
+            // two orientations (rot90)
+            const rots = [[-dy, dx], [dy, -dx]];
+            for (const [rx, ry] of rots) {
+              const r = { x: x + rx, y: y + ry };
+              const s = { x: q.x + rx, y: q.y + ry };
+              if (!inBoard(r.x, r.y) || !inBoard(s.x, s.y)) continue;
+  
+              const cells = [p, q, r, s].map(z => ({ x: z.x, y: z.y }));
+              const canon = cells.map(c => keyXY(c.x, c.y)).sort().join("|");
+              if (!m.has(canon)) {
+                const area = dx * dx + dy * dy; // side length squared
+                m.set(canon, { cells, area, key: canon });
+              }
+            }
+          }
+        }
+      }
+    }
+    return Array.from(m.values()).sort((a, b) => b.area - a.area);
+  })();
+  
+  // map cellKey -> squares that include this cell (for quick lookup)
+  const CELL_TO_SQS = (() => {
+    const map = new Map();
+    for (const sq of ALL_SQUARES) {
+      for (const c of sq.cells) {
+        const k = keyXY(c.x, c.y);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(sq);
+      }
+    }
+    return map;
+  })();
+  
+  // For a given color, find "imminent squares": 3 stones of color + 1 empty
+  // Return map emptyKey -> {bestArea, sumArea, x, y}
+  function imminentMoves(color) {
+    const res = new Map();
+    // iterate squares and count
+    for (const sq of ALL_SQUARES) {
+      let mine = 0, empty = 0, emptyCell = null, blocked = false;
+      for (const c of sq.cells) {
+        const v = board[c.y][c.x];
+        if (v === color) mine++;
+        else if (v === 0) { empty++; emptyCell = c; }
+        else { blocked = true; break; } // opponent stone inside corners blocks this square-for-color
+      }
+      if (blocked) continue;
+      if (mine === 3 && empty === 1 && emptyCell) {
+        const k = keyXY(emptyCell.x, emptyCell.y);
+        const cur = res.get(k) || { bestArea: 0, sumArea: 0, x: emptyCell.x, y: emptyCell.y };
+        cur.bestArea = Math.max(cur.bestArea, sq.area);
+        cur.sumArea += sq.area;
+        res.set(k, cur);
+      }
+    }
+    return res;
+  }
+  
+  function pickBestFromMoveMap(moveMap) {
+    // choose by bestArea desc, then sumArea desc
+    let best = null;
+    for (const v of moveMap.values()) {
+      if (!best) best = v;
+      else if (v.bestArea > best.bestArea) best = v;
+      else if (v.bestArea === best.bestArea && v.sumArea > best.sumArea) best = v;
+    }
+    return best; // {x,y,bestArea,sumArea} or null
+  }
   // -------- Squares detection (any orientation) --------
   // If current player's 4 stones form a square:
   // pick side vector v = q-p, r = p + rot90(v), s = q + rot90(v)
