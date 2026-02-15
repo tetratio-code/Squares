@@ -15,7 +15,6 @@
       --white:#f2f2f2;
       --accent:#6aa9ff;
       --danger:#ff6a7a;
-      --cell-base: rgba(255,255,255,.10);
     }
 
     body{
@@ -75,7 +74,7 @@
       cursor:pointer; user-select:none;
 
       /* 每格用純色，不用漸層 */
-      background: var(--cell-base);
+      background: rgba(255,255,255,.06);
     }
 
     .cell.disabled{ cursor:not-allowed; opacity:.78; }
@@ -192,7 +191,7 @@
     <div class="card boardCard">
       <div class="topbar">
         <div>
-          <h1>正方形提子棋 v1.5</h1>
+          <h1>正方形提子棋 v1.6</h1>
           <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU。每回合：下棋 →（若可提子則必須提子）→ 結束回合。</div>
         </div>
         <div class="scoreRow">
