@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Redirecting...</title>
+  <meta name="robots" content="noindex" />
+</head>
+<body>
+    <script>
+  (function () {
+    var l = window.location;
+  
+    // ✅ 已經有 p= 就不要再做任何 redirect，避免迴圈
+    if (l.search.indexOf("p=") !== -1) return;
+  
+    // Project Pages: https://username.github.io/repo/  => segmentCount = 1
+    // User Pages:    https://username.github.io/       => segmentCount = 0
+    var segmentCount = 1; //project page
+  
+    var path = l.pathname;
+    var base = path.split("/").slice(0, 1 + segmentCount).join("/");
+  
+    var rest = "/" + path.split("/").slice(1 + segmentCount).join("/");
+    rest = rest.replace(/\/404\.html$/, "/");
+    if (rest === "//" || rest === "") rest = "/";
+  
+    var newUrl =
+      l.origin +
+      base +
+      "/?p=" + encodeURIComponent(rest) +
+      "&q=" + encodeURIComponent(l.search.slice(1)) +
+      "&h=" + encodeURIComponent(l.hash.slice(1));
+  
+    l.replace(newUrl);
+  })();
+  </script>
+</body>
+</html>
