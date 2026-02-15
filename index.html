@@ -62,7 +62,7 @@
       grid-template-columns: repeat(9, 1fr);
       border-radius:14px;
       overflow:hidden;
-      border:1px solid rgba(255,255,255,.12);
+      border:3px solid rgba(255,255,255,.25);
 
       /* 取消棋盤本身漸層 */
       background: rgba(0,0,0,.10);
@@ -70,7 +70,7 @@
 
     .cell{
       position:relative;
-      border:1px solid rgba(255,255,255,.08);
+      border:2px solid rgba(255,255,255,.18);
       display:flex; align-items:center; justify-content:center;
       cursor:pointer; user-select:none;
 
@@ -192,7 +192,7 @@
     <div class="card boardCard">
       <div class="topbar">
         <div>
-          <h1>正方形提子棋 v1.4</h1>
+          <h1>正方形提子棋 v1.5</h1>
           <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU。每回合：下棋 →（若可提子則必須提子）→ 結束回合。</div>
         </div>
         <div class="scoreRow">
