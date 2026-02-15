@@ -6,7 +6,6 @@
   <title>9×9 正方形提子棋</title>
   <style>
     :root{
-      /* 稍微提高背景亮度 */
       --bg:#101a33;
       --panel:#0f1a33;
       --line:#1f2a44;
@@ -16,7 +15,13 @@
       --white:#f2f2f2;
       --accent:#6aa9ff;
       --danger:#ff6a7a;
+
+      /* 可落子格子亮度（不要漸層） */
+      --cell-base: rgba(255,255,255,.04);
+      --cell-playable: rgba(255,255,255,.10);
+      --cell-playable-hover: rgba(106,169,255,.14);
     }
+
     body{
       margin:0;
       font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans TC", Arial;
@@ -25,6 +30,7 @@
         radial-gradient(900px 700px at 85% 15%, rgba(106,169,255,.18) 0%, rgba(0,0,0,0) 55%);
       color:var(--text);
     }
+
     .wrap{
       max-width:1100px; margin:24px auto; padding:0 16px;
       display:grid; gap:16px; grid-template-columns: 1fr 320px;
@@ -61,16 +67,27 @@
       border-radius:14px;
       overflow:hidden;
       border:1px solid rgba(255,255,255,.12);
-      background: linear-gradient(0deg, rgba(255,255,255,.05), rgba(255,255,255,.03));
+
+      /* 取消棋盤本身漸層 */
+      background: rgba(0,0,0,.10);
     }
+
     .cell{
       position:relative;
       border:1px solid rgba(255,255,255,.08);
       display:flex; align-items:center; justify-content:center;
       cursor:pointer; user-select:none;
+
+      /* 每格用純色，不用漸層 */
+      background: var(--cell-base);
     }
-    .cell:hover{ background: rgba(106,169,255,.10); }
+
+    /* 可落子格子更亮 */
+    .cell.playable{ background: var(--cell-playable); }
+    .cell.playable:hover{ background: var(--cell-playable-hover); }
+
     .cell.disabled{ cursor:not-allowed; opacity:.78; }
+    .cell.disabled:hover{ background: var(--cell-base); }
 
     .stone{
       width:70%; height:70%;
@@ -89,7 +106,7 @@
       outline: 1px solid rgba(0,0,0,.10);
     }
 
-    /* 標示落子處：實心標記（疊在棋子/格子上方） */
+    /* 標示落子處：實心標記 */
     .cell.lastmove::after{
       content:"";
       position:absolute;
@@ -103,7 +120,7 @@
       pointer-events:none;
     }
 
-    /* 標示提正方形四角：空心標記 */
+    /* 標示提正方形四角：空心標記（會保留到下一次落子） */
     .cell.sqcorner::before{
       content:"";
       position:absolute;
@@ -178,6 +195,7 @@
     }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <div class="card boardCard">
@@ -187,7 +205,7 @@
           <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU。每回合：下棋 →（若可提子則必須提子）→ 結束回合。</div>
         </div>
         <div class="scoreRow">
-          <div class="pill" id="turnPill"><span class="dot black" id="turnDot"></span><span id="turnText">黑方回合</span></div>
+          <div class="pill"><span class="dot black" id="turnDot"></span><span id="turnText">黑方回合</span></div>
           <div class="pill"><span class="dot phase"></span><span id="phaseText">下棋階段</span></div>
           <div class="pill"><span>黑分：</span><b id="scoreB">0</b></div>
           <div class="pill"><span>白分：</span><b id="scoreW">0</b></div>
@@ -224,10 +242,10 @@
       <div class="footerHint">
         標記說明：<br>
         ● 實心點＝上一步落子位置<br>
-        ○ 空心圈＝目前選中的正方形四角<br><br>
+        ○ 空心圈＝目前選中的正方形四角（提子後會保留，直到下一次落子）<br><br>
         操作提示：<br>
-        1) 下棋階段：點空格下 1 顆。<br>
-        2) 若可提子：先在右側選正方形（會以空心圈標四角），按「提子」得分。<br>
+        1) 下棋階段：點空格下 1 顆（可落子格會更亮）。<br>
+        2) 若可提子：先在右側選正方形，按「提子」得分。<br>
         3) 若無可提子：可直接結束回合。
       </div>
     </div>
@@ -238,23 +256,30 @@
   const N = 9;
   const TARGET = 81;
 
-  // board[y][x] = 0 empty, 1 black, 2 white
+  // ===== helpers =====
+  function inBoard(x,y){ return x>=0 && x<N && y>=0 && y<N; }
+  function keyXY(x,y){ return `${x},${y}`; }
+  function other(t){ return t === 1 ? 2 : 1; }
+  function turnName(t){ return t === 1 ? "黑方" : "白方"; }
+
+  // ===== state =====
   let board = Array.from({length:N}, () => Array(N).fill(0));
-  let turn = 1; // 1 black, 2 white
-  let phase = "place"; // "place" | "capture"
+  let turn = 1;                 // 1 black, 2 white
+  let phase = "place";          // "place" | "capture"
   let placedThisTurn = false;
 
   let scoreB = 0, scoreW = 0;
 
-  // capture UI state
-  let availableSquares = []; // {cells:[{x,y}..4], area, key}
+  let availableSquares = [];
   let selectedSquareKey = null;
   let captureDoneThisTurn = false;
 
-  // last move marker
-  let lastMove = null; // {x,y}
+  let lastMove = null;          // {x,y}
 
-  // DOM
+  // 重要：提子後空心標記要保留到「下一次落子」
+  let pendingClearSquareMarkers = false;
+
+  // ===== DOM =====
   const elBoard = document.getElementById("board");
   const elPhaseText = document.getElementById("phaseText");
   const elTurnText = document.getElementById("turnText");
@@ -269,66 +294,68 @@
   const btnRestart = document.getElementById("btnRestart");
   const btnCaptureSquare = document.getElementById("btnCaptureSquare");
 
-  // build grid
+  // ===== build grid =====
   const cellEls = Array.from({length:N}, () => Array(N).fill(null));
   for (let y=0; y<N; y++){
     for (let x=0; x<N; x++){
       const d = document.createElement("div");
       d.className = "cell";
-      d.dataset.x = x;
-      d.dataset.y = y;
       d.addEventListener("click", () => onCellClick(x,y));
       elBoard.appendChild(d);
       cellEls[y][x] = d;
     }
   }
 
+  // ===== UI marker helpers =====
+  function clearSquareMarkers(){
+    for (let y=0; y<N; y++) for (let x=0; x<N; x++) cellEls[y][x].classList.remove("sqcorner");
+  }
+  function markSquareCorners(cells){
+    cells.forEach(c => cellEls[c.y][c.x].classList.add("sqcorner"));
+  }
+
+  function logLine(s){
+    const cur = elLog.textContent.split("\n");
+    if (cur.length && cur[cur.length-1] === s) return;
+    elLog.textContent += (elLog.textContent ? "\n" : "") + s;
+    elLog.scrollTop = elLog.scrollHeight;
+  }
+
+  // ===== game flow =====
   btnSkipCapture.addEventListener("click", () => {
-    if (phase !== "capture") return;
-    if (turn === 2) return;
-    // 強制提子：若有可用正方形，不允許跳過
+    if (phase !== "capture" || turn !== 1) return;
     if (availableSquares.length > 0) {
       logLine("此回合存在可用正方形，必須提子（可選要提哪個）。");
       return;
     }
     captureDoneThisTurn = true;
     selectedSquareKey = null;
-    clearSquareMarkers();
     renderSquares([]);
     logLine(`${turnName(turn)} 跳過提子。`);
     updateButtons();
   });
 
   btnCaptureSquare.addEventListener("click", () => {
-    if (phase !== "capture") return;
-    if (turn === 2) return; // CPU 自己會做
+    if (phase !== "capture" || turn !== 1) return;
     if (captureDoneThisTurn) return;
 
-    if (availableSquares.length === 0) {
-      logLine("目前沒有可用正方形，無法提子。");
-      return;
-    }
-    if (!selectedSquareKey) {
-      logLine("請先在右側選一個正方形。");
-      return;
-    }
+    if (availableSquares.length === 0) { logLine("目前沒有可用正方形，無法提子。"); return; }
+    if (!selectedSquareKey) { logLine("請先在右側選一個正方形。"); return; }
 
     const sq = availableSquares.find(s => s.key === selectedSquareKey);
     if (!sq) return;
 
     // 移除自己形成正方形的四顆棋
-    sq.cells.forEach(c => {
-      if (board[c.y][c.x] === turn) board[c.y][c.x] = 0;
-    });
+    sq.cells.forEach(c => { if (board[c.y][c.x] === 1) board[c.y][c.x] = 0; });
 
-    // 得分
-    addScore(turn, sq.area);
-
+    addScore(1, sq.area);
     captureDoneThisTurn = true;
-    logLine(`${turnName(turn)} 提子：移除自己 4 子（面積 ${sq.area}），得分 +${sq.area}。`);
 
+    // 提子後：空心標記保留到「下一次落子」
+    pendingClearSquareMarkers = true;
+
+    logLine(`${turnName(1)} 提子：移除自己 4 子（面積 ${sq.area}），得分 +${sq.area}。`);
     selectedSquareKey = null;
-    clearSquareMarkers();
     renderAll();
     checkWinMaybe();
   });
@@ -350,19 +377,20 @@
     selectedSquareKey = null;
     captureDoneThisTurn = false;
     lastMove = null;
+    pendingClearSquareMarkers = false;
     elLog.textContent = "";
+    clearSquareMarkers();
     renderAll();
     logLine("新局開始：黑棋先行。");
   }
 
   function renderAll(){
-    // stones + markers reset
+    // stones + base classes
     for (let y=0; y<N; y++){
       for (let x=0; x<N; x++){
         const c = cellEls[y][x];
         c.innerHTML = "";
-        c.classList.remove("disabled","lastmove");
-        // sqcorner 由 clearSquareMarkers / markSquare 控制
+        c.classList.remove("disabled","lastmove","playable");
         const v = board[y][x];
         if (v === 1){
           const s = document.createElement("div");
@@ -377,9 +405,7 @@
     }
 
     // last move marker
-    if (lastMove && inBoard(lastMove.x, lastMove.y)) {
-      cellEls[lastMove.y][lastMove.x].classList.add("lastmove");
-    }
+    if (lastMove && inBoard(lastMove.x, lastMove.y)) cellEls[lastMove.y][lastMove.x].classList.add("lastmove");
 
     // top pills
     elPhaseText.textContent = (phase === "place") ? "下棋階段" : "提子階段";
@@ -388,28 +414,26 @@
     elScoreB.textContent = scoreB;
     elScoreW.textContent = scoreW;
 
-    // disable logic
+    // playable highlighting + disable
     for (let y=0; y<N; y++){
       for (let x=0; x<N; x++){
         const c = cellEls[y][x];
         if (phase === "place"){
-          if (board[y][x] !== 0 || placedThisTurn || turn === 2) c.classList.add("disabled");
-        } else { // capture
-          // capture phase：棋盤不點擊操作（由右側列表+按鈕）
-          c.classList.add("disabled");
+          const isPlayable = (turn === 1 && !placedThisTurn && board[y][x] === 0);
+          if (isPlayable) c.classList.add("playable");
+          else c.classList.add("disabled");
+        } else {
+          c.classList.add("disabled"); // capture 由右側操作
         }
       }
     }
 
     // squares list refresh when entering capture on human turn
     if (phase === "capture" && turn === 1){
-      availableSquares = findSquares(turn);
+      availableSquares = findSquares(1);
       renderSquares(availableSquares);
       elSqCount.textContent = availableSquares.length;
-
-      if (availableSquares.length > 0 && !captureDoneThisTurn) {
-        logLine("此回合存在可用正方形：必須提子（可選要提哪個）。");
-      }
+      if (availableSquares.length > 0 && !captureDoneThisTurn) logLine("此回合存在可用正方形：必須提子（可選要提哪個）。");
     } else {
       renderSquares([]);
       elSqCount.textContent = 0;
@@ -423,51 +447,45 @@
     const mustCapture = isHumanCapture && (availableSquares.length > 0);
 
     btnCaptureSquare.disabled = !(isHumanCapture && mustCapture && !!selectedSquareKey);
-    // 強制提子：有正方形時不能跳過
     btnSkipCapture.disabled = !(isHumanCapture && !mustCapture);
     btnEndTurn.disabled = !canEndTurn();
   }
 
   function canEndTurn(){
-    if (turn === 2) return false; // CPU will end itself
+    if (turn === 2) return false;
     if (phase === "place") return false;
-
-    // capture phase:
-    // - 若有可用正方形：強制提子 -> 必須 captureDoneThisTurn 才能結束
-    // - 若沒有可用正方形：可直接結束
-    if (availableSquares.length > 0) return captureDoneThisTurn;
+    if (availableSquares.length > 0) return captureDoneThisTurn; // 強制提子
     return true;
   }
 
   function onCellClick(x,y){
-    if (turn === 2) return; // CPU
-    if (phase === "place"){
-      if (placedThisTurn) return;
-      if (board[y][x] !== 0) return;
+    if (turn !== 1) return;
+    if (phase !== "place") return;
+    if (placedThisTurn) return;
+    if (board[y][x] !== 0) return;
 
-      board[y][x] = turn;
-      lastMove = {x,y};
-      placedThisTurn = true;
-
-      logLine(`${turnName(turn)} 下在 (${x+1},${y+1})。`);
-
-      // auto enter capture phase
-      phase = "capture";
-      captureDoneThisTurn = false;
-      selectedSquareKey = null;
+    // 落子前：若上一手有「提子後保留的空心標記」，此刻清掉
+    if (pendingClearSquareMarkers) {
       clearSquareMarkers();
-      renderAll();
-
-      if (availableSquares.length === 0){
-        logLine(`${turnName(turn)} 沒有可用正方形，本回合無法提子。可直接結束回合。`);
-      } else {
-        logLine(`請先在右側選一個正方形，按「提子（移除4子）」得分（此回合強制提子）。`);
-      }
-      return;
+      pendingClearSquareMarkers = false;
+    } else {
+      // 也清掉「選正方形但尚未提子」的標記（避免跨手殘留）
+      clearSquareMarkers();
     }
 
-    // capture phase: no board click action
-    if (phase === "capture") return;
+    board[y][x] = 1;
+    lastMove = {x,y};
+    placedThisTurn = true;
+
+    logLine(`${turnName(1)} 下在 (${x+1},${y+1})。`);
+
+    phase = "capture";
+    captureDoneThisTurn = false;
+    selectedSquareKey = null;
+    renderAll();
+
+    if (availableSquares.length === 0) logLine(`${turnName(1)} 沒有可用正方形，本回合無法提子。可直接結束回合。`);
+    else logLine(`請先在右側選一個正方形，按「提子（移除4子）」得分（此回合強制提子）。`);
   }
 
   function endTurn(){
@@ -475,49 +493,47 @@
     placedThisTurn = false;
     captureDoneThisTurn = false;
     selectedSquareKey = null;
-    clearSquareMarkers();
-    turn = other(turn);
-    renderAll();
 
+    // 結束回合不清 sqcorner：若剛提子，標記保留到下一次落子（CPU 落子也算）
+    turn = 2;
+    renderAll();
     checkWinMaybe();
     maybeCpuAuto();
   }
 
   function maybeCpuAuto(){
     if (turn !== 2) return;
-
     setTimeout(() => {
-      cpuPlace();
-
-      // enter capture automatically
+      cpuPlace();        // CPU 落子時會處理 pendingClearSquareMarkers
       phase = "capture";
       captureDoneThisTurn = false;
       selectedSquareKey = null;
-      clearSquareMarkers();
 
-      // compute squares and (forced) capture if any
       availableSquares = findSquares(2);
       if (availableSquares.length === 0){
         logLine(`白方（CPU）沒有可用正方形，無法提子。`);
         captureDoneThisTurn = true;
         checkWinMaybe();
-        setTimeout(() => endTurnCPU(), 250);
+        setTimeout(endTurnCPU, 250);
         return;
       }
 
-      // 強制提子：挑最大面積
-      const sq = availableSquares[0];
-      sq.cells.forEach(c => {
-        if (board[c.y][c.x] === 2) board[c.y][c.x] = 0;
-      });
+      const sq = availableSquares[0]; // 最大面積
+      // 提子：移除自己四顆
+      sq.cells.forEach(c => { if (board[c.y][c.x] === 2) board[c.y][c.x] = 0; });
       addScore(2, sq.area);
+
+      // CPU 提子後也保留標記到下一次落子
+      clearSquareMarkers();
+      markSquareCorners(sq.cells);
+      pendingClearSquareMarkers = true;
 
       logLine(`白方（CPU）提子：移除自己 4 子（面積 ${sq.area}），得分 +${sq.area}。`);
       captureDoneThisTurn = true;
 
       renderAll();
       checkWinMaybe();
-      setTimeout(() => endTurnCPU(), 300);
+      setTimeout(endTurnCPU, 300);
     }, 300);
   }
 
@@ -526,28 +542,27 @@
     placedThisTurn = false;
     captureDoneThisTurn = false;
     selectedSquareKey = null;
-    clearSquareMarkers();
     turn = 1;
     renderAll();
   }
 
-  // ===== Smarter CPU placement: complete best imminent square, else block opponent best imminent square, else random =====
+  // ===== Smarter CPU placement =====
   function cpuPlace(){
-    const my = imminentMoves(2);
-    let pick = pickBestFromMoveMap(my);
-
-    if (!pick) {
-      const opp = imminentMoves(1);
-      pick = pickBestFromMoveMap(opp);
+    // CPU 落子前：若上一手提子留下標記，現在清掉（符合「保留直到對方/己方落子」）
+    if (pendingClearSquareMarkers) {
+      clearSquareMarkers();
+      pendingClearSquareMarkers = false;
+    } else {
+      clearSquareMarkers();
     }
 
+    const my = imminentMoves(2);
+    let pick = pickBestFromMoveMap(my);
+    if (!pick) pick = pickBestFromMoveMap(imminentMoves(1));
     if (!pick) {
       const empties = [];
-      for (let y=0; y<N; y++) for (let x=0; x<N; x++) if (board[y][x] === 0) empties.push({x,y});
-      if (empties.length === 0){
-        logLine("棋盤已滿。");
-        return;
-      }
+      for (let yy=0; yy<N; yy++) for (let xx=0; xx<N; xx++) if (board[yy][xx] === 0) empties.push({x:xx,y:yy});
+      if (empties.length === 0){ logLine("棋盤已滿。"); return; }
       pick = empties[Math.floor(Math.random()*empties.length)];
     }
 
@@ -561,7 +576,6 @@
       const oppNow = imminentMoves(1);
       if (oppNow.has(k)) note = `（阻擋黑方機會：最高面積 ${oppNow.get(k).bestArea}）`;
     }
-
     logLine(`白方（CPU）下在 (${pick.x+1},${pick.y+1})。${note}`);
     renderAll();
   }
@@ -584,51 +598,28 @@
     }
   }
 
-  function turnName(t){ return t === 1 ? "黑方" : "白方"; }
-  function other(t){ return t === 1 ? 2 : 1; }
-
-  function logLine(s){
-    // 避免同一輪 renderAll 時重複刷「強制提子」訊息：只要最後一行相同就不再加
-    const cur = elLog.textContent.split("\n");
-    if (cur.length && cur[cur.length-1] === s) return;
-    elLog.textContent += (elLog.textContent ? "\n" : "") + s;
-    elLog.scrollTop = elLog.scrollHeight;
-  }
-
-  // ===== Precompute all possible squares on 9x9 (any rotation) =====
+  // ===== Precompute all possible squares =====
   const ALL_SQUARES = (() => {
-    const m = new Map(); // canon -> {cells, area, key}
-    for (let y = 0; y < N; y++) {
-      for (let x = 0; x < N; x++) {
-        for (let dx = -8; dx <= 8; dx++) {
-          for (let dy = -8; dy <= 8; dy++) {
-            if (dx === 0 && dy === 0) continue;
-
-            const p = { x, y };
-            const q = { x: x + dx, y: y + dy };
-            if (!inBoard(q.x, q.y)) continue;
-
-            const rots = [[-dy, dx], [dy, -dx]];
-            for (const [rx, ry] of rots) {
-              const r = { x: x + rx, y: y + ry };
-              const s = { x: q.x + rx, y: q.y + ry };
-              if (!inBoard(r.x, r.y) || !inBoard(s.x, s.y)) continue;
-
-              const cells = [p, q, r, s].map(z => ({ x: z.x, y: z.y }));
-              const canon = cells.map(c => keyXY(c.x, c.y)).sort().join("|");
-              if (!m.has(canon)) {
-                const area = dx * dx + dy * dy; // side length squared
-                m.set(canon, { cells, area, key: canon });
-              }
-            }
-          }
+    const m = new Map();
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      for (let dx = -8; dx <= 8; dx++) for (let dy = -8; dy <= 8; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const p = { x, y };
+        const q = { x: x + dx, y: y + dy };
+        if (!inBoard(q.x, q.y)) continue;
+        for (const [rx, ry] of [[-dy, dx], [dy, -dx]]) {
+          const r = { x: x + rx, y: y + ry };
+          const s = { x: q.x + rx, y: q.y + ry };
+          if (!inBoard(r.x, r.y) || !inBoard(s.x, s.y)) continue;
+          const cells = [p, q, r, s].map(z => ({ x: z.x, y: z.y }));
+          const canon = cells.map(c => keyXY(c.x, c.y)).sort().join("|");
+          if (!m.has(canon)) m.set(canon, { cells, area: dx*dx + dy*dy, key: canon });
         }
       }
     }
     return Array.from(m.values()).sort((a, b) => b.area - a.area);
   })();
 
-  // imminent squares: 3 stones of color + 1 empty
   function imminentMoves(color) {
     const res = new Map();
     for (const sq of ALL_SQUARES) {
@@ -658,12 +649,13 @@
       else if (v.bestArea > best.bestArea) best = v;
       else if (v.bestArea === best.bestArea && v.sumArea > best.sumArea) best = v;
     }
-    return best; // {x,y,bestArea,sumArea} or null
+    return best;
   }
 
-  // ===== Find actual squares for capture list (any orientation) =====
+  // ===== Find actual squares for capture list =====
   function findSquares(color){
-    const pts = allStones(color);
+    const pts = [];
+    for (let y=0; y<N; y++) for (let x=0; x<N; x++) if (board[y][x] === color) pts.push({x,y});
     const has = new Set(pts.map(p => keyXY(p.x,p.y)));
 
     const sqMap = new Map();
@@ -674,18 +666,15 @@
         const dx = q.x - p.x, dy = q.y - p.y;
         if (dx === 0 && dy === 0) continue;
 
-        for (const rot of [[-dy, dx],[dy, -dx]]){
-          const rx = rot[0], ry = rot[1];
+        for (const [rx, ry] of [[-dy, dx],[dy, -dx]]){
           const r = {x: p.x + rx, y: p.y + ry};
           const s = {x: q.x + rx, y: q.y + ry};
-
           if (!inBoard(r.x,r.y) || !inBoard(s.x,s.y)) continue;
           if (!has.has(keyXY(r.x,r.y)) || !has.has(keyXY(s.x,s.y))) continue;
 
           const cells = [p,q,r,s].map(z => ({x:z.x,y:z.y}));
           const canon = cells.map(z => keyXY(z.x,z.y)).sort().join("|");
           const area = dx*dx + dy*dy;
-
           if (!sqMap.has(canon)) sqMap.set(canon, { cells, area, key: canon });
         }
       }
@@ -693,20 +682,7 @@
     return Array.from(sqMap.values()).sort((a,b) => b.area - a.area);
   }
 
-  function allStones(color){
-    const pts = [];
-    for (let y=0; y<N; y++){
-      for (let x=0; x<N; x++){
-        if (board[y][x] === color) pts.push({x,y});
-      }
-    }
-    return pts;
-  }
-
-  function inBoard(x,y){ return x>=0 && x<N && y>=0 && y<N; }
-  function keyXY(x,y){ return `${x},${y}`; }
-
-  // ===== Square list + empty-circle markers (four corners) =====
+  // ===== square list =====
   function renderSquares(squares){
     elSqList.innerHTML = "";
     if (!squares || squares.length === 0){
@@ -728,7 +704,7 @@
 
       const right = document.createElement("span");
       right.className = "badge";
-      right.textContent = formatCells(sq.cells);
+      right.textContent = sq.cells.slice().sort((a,b)=> (a.y-b.y)||(a.x-b.x)).map(c=>`(${c.x+1},${c.y+1})`).join(" ");
 
       it.appendChild(left);
       it.appendChild(right);
@@ -739,10 +715,12 @@
         if (availableSquares.length === 0) return;
 
         selectedSquareKey = sq.key;
+
+        // 選擇正方形：顯示空心圈（不設定 pendingClear，因為還沒提子）
         clearSquareMarkers();
         markSquareCorners(sq.cells);
-        renderSquares(availableSquares);
 
+        renderSquares(availableSquares);
         logLine(`已選正方形（面積 ${sq.area}）：按「提子（移除4子）」即可得分。`);
         updateButtons();
       });
@@ -751,28 +729,8 @@
     });
   }
 
-  function formatCells(cells){
-    const arr = cells.slice()
-      .sort((a,b) => (a.y-b.y) || (a.x-b.x))
-      .map(c => `(${c.x+1},${c.y+1})`);
-    return arr.join(" ");
-  }
-
-  function clearSquareMarkers(){
-    for (let y=0; y<N; y++){
-      for (let x=0; x<N; x++){
-        cellEls[y][x].classList.remove("sqcorner");
-      }
-    }
-  }
-
-  function markSquareCorners(cells){
-    cells.forEach(c => cellEls[c.y][c.x].classList.add("sqcorner"));
-  }
-
   // init
-  renderAll();
-  logLine("新局開始：黑棋先行。");
+  resetGame();
 })();
 </script>
 </body>
