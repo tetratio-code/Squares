@@ -17,7 +17,7 @@
       --danger:#ff6a7a;
 
       /* 可落子格子亮度（不要漸層） */
-      --cell-base: rgba(255,255,255,.04);
+      --cell-base: rgba(255,255,255,.10);
       --cell-playable: rgba(255,255,255,.10);
       --cell-playable-hover: rgba(106,169,255,.14);
     }
@@ -81,10 +81,6 @@
       /* 每格用純色，不用漸層 */
       background: var(--cell-base);
     }
-
-    /* 可落子格子更亮 */
-    .cell.playable{ background: var(--cell-playable); }
-    .cell.playable:hover{ background: var(--cell-playable-hover); }
 
     .cell.disabled{ cursor:not-allowed; opacity:.78; }
     .cell.disabled:hover{ background: var(--cell-base); }
@@ -418,12 +414,16 @@
     for (let y=0; y<N; y++){
       for (let x=0; x<N; x++){
         const c = cellEls[y][x];
+        c.classList.remove("disabled");
+    
         if (phase === "place"){
-          const isPlayable = (turn === 1 && !placedThisTurn && board[y][x] === 0);
-          if (isPlayable) c.classList.add("playable");
-          else c.classList.add("disabled");
+          // 下棋階段
+          if (board[y][x] !== 0 || placedThisTurn || turn !== 1){
+            c.classList.add("disabled");
+          }
         } else {
-          c.classList.add("disabled"); // capture 由右側操作
+          // capture 階段全部禁用（由右側按鈕操作）
+          c.classList.add("disabled");
         }
       }
     }
