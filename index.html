@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>9×9 正方形提子棋</title>
+  <title>9×9 正方形提子棋v1.1</title>
   <style>
     :root{
       --bg:#0b1220; --panel:#0f1a33; --line:#1f2a44; --text:#e8eefc; --muted:#a9b6d6;
@@ -161,7 +161,7 @@
 
     <div class="card side">
       <div class="sub">
-        <b>提子規則：</b>提子階段，若「當前玩家的任四顆棋」能形成正方形（斜的也算），即可提走「一顆對手棋」，並獲得該正方形面積分數（= 邊長²）。
+        <b>提子規則：</b>提子階段，若「當前玩家的任四顆棋」能形成正方形（斜的也算），即可將「這四顆自己的棋」提掉，並獲得該正方形面積分數（= 邊長²）。
       </div>
 
       <div>
@@ -173,6 +173,7 @@
       </div>
 
       <div class="btnRow">
+        <button class="primary" id="btnCaptureSquare">提子（移除4子）</button>
         <button class="primary" id="btnSkipCapture">跳過提子</button>
         <button class="primary" id="btnEndTurn">結束回合 →</button>
         <button class="danger" id="btnRestart">重新開始</button>
@@ -183,7 +184,7 @@
       <div class="footerHint">
         操作提示：<br>
         1) 下棋階段：點空格下 1 顆。<br>
-        2) 進入提子階段後：先在右側選一個正方形（會高亮 4 顆棋），再點棋盤上一顆「對手棋」提走並得分；或按「跳過提子」。<br>
+        2) 進入提子階段後：先在右側選一個正方形（會高亮 4 顆棋），按「提子（移除4子）」得分；或按「跳過提子」。<br>
         3) 按「結束回合」換對方。先達 81 分者勝。
       </div>
     </div>
@@ -220,6 +221,8 @@
   const btnSkipCapture = document.getElementById("btnSkipCapture");
   const btnEndTurn = document.getElementById("btnEndTurn");
   const btnRestart = document.getElementById("btnRestart");
+  const btnCaptureSquare = document.getElementById("btnCaptureSquare");
+
 
   // build grid
   const cellEls = Array.from({length:N}, () => Array(N).fill(null));
@@ -243,6 +246,33 @@
     renderSquares([]);
     logLine(`${turnName(turn)} 跳過提子。`);
     updateButtons();
+  });
+  btnCaptureSquare.addEventListener("click", () => {
+    if (phase !== "capture") return;
+    if (turn === 2) return;              // CPU 自己會做
+    if (captureDoneThisTurn) return;
+    if (!selectedSquareKey) {
+      logLine("請先在右側選一個正方形。");
+      return;
+    }
+    const sq = availableSquares.find(s => s.key === selectedSquareKey);
+    if (!sq) return;
+  
+    // 移除自己形成正方形的四顆棋
+    sq.cells.forEach(c => {
+      if (board[c.y][c.x] === turn) board[c.y][c.x] = 0;
+    });
+  
+    // 得分
+    addScore(turn, sq.area);
+  
+    captureDoneThisTurn = true;
+    logLine(`${turnName(turn)} 提子：移除自己 4 子（面積 ${sq.area}），得分 +${sq.area}。`);
+  
+    selectedSquareKey = null;
+    clearMarks();
+    renderAll();
+    checkWinMaybe();
   });
 
   btnEndTurn.addEventListener("click", () => {
@@ -309,13 +339,7 @@
             c.classList.add("disabled");
           } else {
             // player capture phase
-            if (selectedSquareKey){
-              const isOpponentStone = board[y][x] === other(turn);
-              if (!isOpponentStone) c.classList.add("disabled");
-              else c.classList.add("captureTarget");
-            } else {
-              c.classList.add("disabled");
-            }
+            c.classList.add("disabled");
           }
         }
       }
@@ -335,9 +359,12 @@
   }
 
   function updateButtons(){
-    btnSkipCapture.disabled = !(phase === "capture" && turn === 1 && !captureDoneThisTurn);
+    const isHumanCapture = (phase === "capture" && turn === 1 && !captureDoneThisTurn);
+    btnCaptureSquare.disabled = !(isHumanCapture && !!selectedSquareKey && availableSquares.length > 0);
+    btnSkipCapture.disabled = !isHumanCapture;
     btnEndTurn.disabled = !canEndTurn();
   }
+
 
   function canEndTurn(){
     if (turn === 2) return false; // CPU will end itself
@@ -373,26 +400,6 @@
 
     // capture phase (human): click opponent stone to remove if square selected
     if (phase === "capture"){
-      if (!selectedSquareKey) return;
-      if (board[y][x] !== other(turn)) return;
-      const sq = availableSquares.find(s => s.key === selectedSquareKey);
-      if (!sq) return;
-
-      // capture that stone
-      board[y][x] = 0;
-
-      // score
-      addScore(turn, sq.area);
-
-      captureDoneThisTurn = true;
-      logLine(`${turnName(turn)} 提走 ${turnName(other(turn))} 一子於 (${x+1},${y+1})，得分 +${sq.area}（正方形面積）。`);
-
-      // clear selection after capture
-      selectedSquareKey = null;
-      clearMarks();
-      renderAll();
-
-      checkWinMaybe();
       return;
     }
   }
@@ -433,22 +440,13 @@
 
       // pick a random square, capture a random opponent stone
       const sq = availableSquares[Math.floor(Math.random()*availableSquares.length)];
-      const oppStones = allStones(1);
-      if (oppStones.length === 0){
-        logLine(`白方（CPU）有正方形但黑子已為 0，跳過提子。`);
-        captureDoneThisTurn = true;
-        checkWinMaybe();
-        setTimeout(() => endTurnCPU(), 350);
-        return;
-      }
-
-      const pick = oppStones[Math.floor(Math.random()*oppStones.length)];
-      board[pick.y][pick.x] = 0;
+      sq.cells.forEach(c => {
+        if (board[c.y][c.x] === 2) board[c.y][c.x] = 0;
+      });
       addScore(2, sq.area);
-
-      logLine(`白方（CPU）提走黑子於 (${pick.x+1},${pick.y+1})，得分 +${sq.area}。`);
+      
+      logLine(`白方（CPU）提子：移除自己 4 子（面積 ${sq.area}），得分 +${sq.area}。`);
       captureDoneThisTurn = true;
-
       renderAll();
       checkWinMaybe();
       setTimeout(() => endTurnCPU(), 450);
@@ -597,7 +595,7 @@
         markSquare(sq.cells);
         renderSquares(availableSquares);
 
-        logLine(`已選正方形（面積 ${sq.area}）：現在請點一顆白子提走。`);
+        logLine(`已選正方形（面積 ${sq.area}）：按「提子（移除4子）」即可得分。`);
         renderAll(); // refresh capture target highlights
       });
 
