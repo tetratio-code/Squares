@@ -247,7 +247,7 @@
   function xyOf(i){ return {x: i%N, y: Math.floor(i/N)}; }
   function keyXY(x,y){ return `${x},${y}`; }
   function other(t){ return t === 1 ? 2 : 1; }
-  function turnName(t){ return t === 1 ? "黑方" : "白方"; }
+  function turnName(t){ return t === 1 ? "黑" : "白"; }
 
   // ===== state =====
   let board = Array.from({length:N}, () => Array(N).fill(0));
@@ -516,8 +516,8 @@
     if (phase !== "capture" || turn !== 1) return;
     if (captureDoneThisTurn) return;
 
-    if (availableSquares.length === 0) { logLine("目前沒有可用正方形，無法提子。"); return; }
-    if (!selectedSquareKey) { logLine("請先在右側選一個正方形。"); return; }
+    //if (availableSquares.length === 0) { logLine("目前沒有可用正方形，無法提子。"); return; }
+    //if (!selectedSquareKey) { logLine("請先在右側選一個正方形。"); return; }
 
     const sq = availableSquares.find(s => s.key === selectedSquareKey);
     if (!sq) return;
@@ -528,7 +528,7 @@
     captureDoneThisTurn = true;
     pendingClearSquareMarkers = true;
 
-    logLine(`${turnName(1)} 提子：移除自己 4 子（面積 ${sq.area}），得分 +${sq.area}。`);
+    logLine(`${turnName(1)}  +${sq.area}。`);
     selectedSquareKey = null;
     renderAll();
     checkWinMaybe();
@@ -646,15 +646,15 @@
     lastMove = {x,y};
     placedThisTurn = true;
 
-    logLine(`${turnName(1)} 下在 (${x+1},${y+1})。`);
+    logLine(`${turnName(1)} (${x+1},${y+1})。`);
 
     phase = "capture";
     captureDoneThisTurn = false;
     selectedSquareKey = null;
     renderAll();
 
-    if (availableSquares.length === 0) logLine(`${turnName(1)} 沒有可用正方形，本回合無法提子。可直接結束回合。`);
-    else logLine(`請先在右側選一個正方形，按「提子（移除4子）」得分（此回合強制提子）。`);
+    //if (availableSquares.length === 0) logLine(`${turnName(1)} 沒有可用正方形，本回合無法提子。可直接結束回合。`);
+    //else logLine(`請先在右側選一個正方形，按「提子（移除4子）」得分（此回合強制提子）。`);
   }
 
   function endTurn(){
@@ -682,7 +682,7 @@
       const b1 = flattenBoard2D(board);
       const squares = aiFindFullSquares(b1, 2);
       if (squares.length === 0){
-        logLine(`白方（CPU）沒有可用正方形，無法提子。`);
+        //logLine(`白方（CPU）沒有可用正方形，無法提子。`);
         captureDoneThisTurn = true;
         checkWinMaybe();
         setTimeout(endTurnCPU, 250);
@@ -700,7 +700,7 @@
       markSquareCorners(sq.cells);
       pendingClearSquareMarkers = true;
 
-      logLine(`白方（CPU）提子：移除自己 4 子（面積 ${sq.area}），得分 +${sq.area}。`);
+      logLine(`+${sq.area}。`);
       captureDoneThisTurn = true;
 
       renderAll();
@@ -735,7 +735,7 @@
     board[best.y][best.x] = 2;
     lastMove = {x: best.x, y: best.y};
 
-    logLine(`白方（CPU）下在 (${best.x+1},${best.y+1})。（alpha-beta 深度 ${CPU_PLY}；全盤掃描空格）`);
+    logLine(`白 (${best.x+1},${best.y+1})`);
     renderAll();
   }
 
@@ -823,7 +823,7 @@
         markSquareCorners(sq.cells);
 
         renderSquares(availableSquares);
-        logLine(`已選正方形（面積 ${sq.area}）：按「提子（移除4子）」即可得分。`);
+        //logLine(`已選正方形（面積 ${sq.area}）：按「提子（移除4子）」即可得分。`);
         updateButtons();
       });
 
