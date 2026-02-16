@@ -185,7 +185,7 @@
     <div class="card boardCard">
       <div class="topbar">
         <div>
-          <h1>正方形提子棋 v1.10（3moves）</h1>
+          <h1>正方形提子棋 v1.10（4moves）</h1>
           <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU（alpha-beta 2–3 ply）。每回合：下棋 →（若可提子則必須提子）→ 自動結束回合。</div>
         </div>
         <div class="scoreRow">
@@ -237,7 +237,7 @@
   const TARGET = 81;
 
   // ===== CPU strength knobs =====
-  const CPU_PLY = 3;           // 2 或 3：3 更強但更慢
+  const CPU_PLY = 4;           // 2 或 3：3 更強但更慢
   const CAPTURE_BRANCH = 3;    // 提子分支：只看面積最大的前 K 個
 
   // ===== helpers =====
