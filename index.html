@@ -502,7 +502,7 @@
   btnSkipCapture.addEventListener("click", () => {
     if (phase !== "capture" || turn !== 1) return;
     if (availableSquares.length > 0) {
-      logLine("此回合存在可用正方形，必須提子（可選要提哪個）。");
+      //logLine("此回合存在可用正方形，必須提子（可選要提哪個）。");
       return;
     }
     captureDoneThisTurn = true;
