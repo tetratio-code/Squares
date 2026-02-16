@@ -62,8 +62,6 @@
       border-radius:14px;
       overflow:hidden;
       border:3px solid rgba(255,255,255,.25);
-
-      /* 取消棋盤本身漸層 */
       background: rgba(0,0,0,.10);
     }
 
@@ -94,7 +92,6 @@
       outline: 1px solid rgba(0,0,0,.10);
     }
 
-    /* 標示落子處：實心標記 */
     .cell.lastmove::after{
       content:"";
       position:absolute;
@@ -108,7 +105,6 @@
       pointer-events:none;
     }
 
-    /* 標示提正方形四角：空心標記（會保留到下一次落子） */
     .cell.sqcorner::before{
       content:"";
       position:absolute;
@@ -189,8 +185,8 @@
     <div class="card boardCard">
       <div class="topbar">
         <div>
-          <h1>正方形提子棋 v1.7</h1>
-          <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU。每回合：下棋 →（若可提子則必須提子）→ 結束回合。</div>
+          <h1>正方形提子棋 v1.8（Alpha-Beta CPU）</h1>
+          <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU（alpha-beta 2–3 ply）。每回合：下棋 →（若可提子則必須提子）→ 結束回合。</div>
         </div>
         <div class="scoreRow">
           <div class="pill"><span class="dot black" id="turnDot"></span><span id="turnText">黑方回合</span></div>
@@ -227,7 +223,7 @@
         ● 實心點＝上一步落子位置<br>
         ○ 空心圈＝目前選中的正方形四角（提子後會保留，直到下一次落子）<br><br>
         操作提示：<br>
-        1) 下棋階段：點空格下 1 顆（可落子格會更亮）。<br>
+        1) 下棋階段：點空格下 1 顆。<br>
         2) 若可提子：先在右側選正方形，按「提子」得分。<br>
         3) 若無可提子：可直接結束回合。<br><br>
         <b>提子規則：</b>提子階段，若「當前玩家的任四顆棋」能形成正方形（斜的也算），即可將「這四顆自己的棋」提掉，並獲得該正方形面積分數（= 邊長²）。<br>
@@ -241,8 +237,14 @@
   const N = 9;
   const TARGET = 81;
 
+  // ===== CPU strength knobs =====
+  const CPU_PLY = 3;           // 2 或 3：3 更強但更慢
+  const CAPTURE_BRANCH = 3;    // 提子分支：只看面積最大的前 K 個（仍保留）
+
   // ===== helpers =====
   function inBoard(x,y){ return x>=0 && x<N && y>=0 && y<N; }
+  function idxOf(x,y){ return y*N + x; }
+  function xyOf(i){ return {x: i%N, y: Math.floor(i/N)}; }
   function keyXY(x,y){ return `${x},${y}`; }
   function other(t){ return t === 1 ? 2 : 1; }
   function turnName(t){ return t === 1 ? "黑方" : "白方"; }
@@ -260,8 +262,6 @@
   let captureDoneThisTurn = false;
 
   let lastMove = null;          // {x,y}
-
-  // 重要：提子後空心標記要保留到「下一次落子」
   let pendingClearSquareMarkers = false;
 
   // ===== DOM =====
@@ -306,6 +306,198 @@
     elLog.scrollTop = elLog.scrollHeight;
   }
 
+  // ===== Precompute all possible squares (for fast AI) =====
+  const ALL_SQUARES = (() => {
+    const m = new Map();
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      for (let dx = -8; dx <= 8; dx++) for (let dy = -8; dy <= 8; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const p = { x, y };
+        const q = { x: x + dx, y: y + dy };
+        if (!inBoard(q.x, q.y)) continue;
+        for (const [rx, ry] of [[-dy, dx], [dy, -dx]]) {
+          const r = { x: x + rx, y: y + ry };
+          const s = { x: q.x + rx, y: q.y + ry };
+          if (!inBoard(r.x, r.y) || !inBoard(s.x, s.y)) continue;
+
+          const cells = [p, q, r, s].map(z => ({ x: z.x, y: z.y }));
+          const canon = cells.map(c => keyXY(c.x, c.y)).sort().join("|");
+          if (!m.has(canon)) {
+            const idxs = cells.map(c => idxOf(c.x, c.y));
+            m.set(canon, { cells, idxs, area: dx*dx + dy*dy, key: canon });
+          }
+        }
+      }
+    }
+    return Array.from(m.values()).sort((a, b) => b.area - a.area);
+  })();
+
+  // ===== AI helpers on 1D board =====
+  function flattenBoard2D(b2){
+    const a = new Uint8Array(N*N);
+    let k=0;
+    for (let y=0; y<N; y++) for (let x=0; x<N; x++) a[k++] = b2[y][x];
+    return a;
+  }
+
+  function aiFindFullSquares(b1, color){
+    const out = [];
+    for (const sq of ALL_SQUARES){
+      const a = sq.idxs;
+      if (b1[a[0]]===color && b1[a[1]]===color && b1[a[2]]===color && b1[a[3]]===color) out.push(sq);
+    }
+    return out; // ALL_SQUARES 已按面積大到小，所以 out 也大到小
+  }
+
+  function aiCountImminent(b1, color){
+    let bestArea = 0, sumArea = 0, count = 0;
+    for (const sq of ALL_SQUARES){
+      let mine=0, empty=0, blocked=false;
+      for (const id of sq.idxs){
+        const v = b1[id];
+        if (v === color) mine++;
+        else if (v === 0) empty++;
+        else { blocked = true; break; }
+      }
+      if (blocked) continue;
+      if (mine === 3 && empty === 1){
+        count++;
+        bestArea = Math.max(bestArea, sq.area);
+        sumArea += sq.area;
+      }
+    }
+    return {bestArea, sumArea, count};
+  }
+
+  // ✅✅✅ 這裡改成「掃全盤 81 格空位」：完全不做候選縮減 ✅✅✅
+  function aiCandidateMoves(b1){
+    const arr = [];
+    for (let i=0; i<N*N; i++){
+      if (b1[i] === 0) arr.push(i);
+    }
+    return arr; // 最多 81（視空格數而定）
+  }
+
+  function aiEval(b1, sB, sW){
+    const scoreTerm = (sW - sB) * 120;
+
+    const wIm = aiCountImminent(b1, 2);
+    const bIm = aiCountImminent(b1, 1);
+    const imminentTerm =
+      (wIm.bestArea - bIm.bestArea) * 2.5 +
+      (wIm.sumArea - bIm.sumArea) * 0.15 +
+      (wIm.count - bIm.count) * 1.0;
+
+    let wSt=0, bSt=0;
+    for (let i=0;i<N*N;i++){
+      if (b1[i]===2) wSt++;
+      else if (b1[i]===1) bSt++;
+    }
+    const stoneTerm = (wSt - bSt) * 0.2;
+
+    return scoreTerm + imminentTerm + stoneTerm;
+  }
+
+  function aiApplyCapture(b1, color, sq){
+    const nb = b1.slice();
+    for (const id of sq.idxs){
+      if (nb[id] === color) nb[id] = 0;
+    }
+    return { nb, delta: sq.area, sq };
+  }
+
+  function aiSimTurn(b1, sB, sW, turnColor, placeIdx, captureSqOrNull){
+    const nb = b1.slice();
+    nb[placeIdx] = turnColor;
+
+    const squares = aiFindFullSquares(nb, turnColor);
+    if (squares.length === 0){
+      return { b1: nb, sB, sW, nextTurn: other(turnColor) };
+    }
+
+    const sq = captureSqOrNull || squares[0];
+    const {nb: nb2, delta} = aiApplyCapture(nb, turnColor, sq);
+    if (turnColor === 1) sB += delta;
+    else sW += delta;
+    return { b1: nb2, sB, sW, nextTurn: other(turnColor) };
+  }
+
+  function aiIsTerminal(sB, sW){
+    return (sB >= TARGET || sW >= TARGET);
+  }
+
+  function alphabeta(b1, sB, sW, turnColor, depth, alpha, beta){
+    if (aiIsTerminal(sB, sW) || depth <= 0){
+      if (sW >= TARGET) return 999999;
+      if (sB >= TARGET) return -999999;
+      return aiEval(b1, sB, sW);
+    }
+
+    const moves = aiCandidateMoves(b1);
+    if (moves.length === 0) return aiEval(b1, sB, sW);
+
+    const isMax = (turnColor === 2);
+    let best = isMax ? -Infinity : Infinity;
+
+    for (const m of moves){
+      const afterPlace = b1.slice();
+      afterPlace[m] = turnColor;
+      const squares = aiFindFullSquares(afterPlace, turnColor);
+
+      const captureChoices = (squares.length === 0)
+        ? [null]
+        : squares.slice(0, CAPTURE_BRANCH);
+
+      for (const cap of captureChoices){
+        const st = aiSimTurn(b1, sB, sW, turnColor, m, cap);
+
+        const v = alphabeta(
+          st.b1, st.sB, st.sW, st.nextTurn,
+          depth - 1, alpha, beta
+        );
+
+        if (isMax){
+          if (v > best) best = v;
+          if (best > alpha) alpha = best;
+          if (alpha >= beta) return best;
+        } else {
+          if (v < best) best = v;
+          if (best < beta) beta = best;
+          if (alpha >= beta) return best;
+        }
+      }
+    }
+    return best;
+  }
+
+  function aiPickBestMove(){
+    const b1 = flattenBoard2D(board);
+    const moves = aiCandidateMoves(b1);
+    if (moves.length === 0) return null;
+
+    let bestMove = moves[0];
+    let bestVal = -Infinity;
+
+    for (const m of moves){
+      const afterPlace = b1.slice();
+      afterPlace[m] = 2;
+      const squares = aiFindFullSquares(afterPlace, 2);
+      const captureChoices = (squares.length === 0)
+        ? [null]
+        : squares.slice(0, CAPTURE_BRANCH);
+
+      for (const cap of captureChoices){
+        const st = aiSimTurn(b1, scoreB, scoreW, 2, m, cap);
+        const v = alphabeta(st.b1, st.sB, st.sW, st.nextTurn, CPU_PLY-1, -Infinity, Infinity);
+        if (v > bestVal){
+          bestVal = v;
+          bestMove = m;
+        }
+      }
+    }
+    return xyOf(bestMove);
+  }
+
   // ===== game flow =====
   btnSkipCapture.addEventListener("click", () => {
     if (phase !== "capture" || turn !== 1) return;
@@ -330,13 +522,10 @@
     const sq = availableSquares.find(s => s.key === selectedSquareKey);
     if (!sq) return;
 
-    // 移除自己形成正方形的四顆棋
     sq.cells.forEach(c => { if (board[c.y][c.x] === 1) board[c.y][c.x] = 0; });
 
     addScore(1, sq.area);
     captureDoneThisTurn = true;
-
-    // 提子後：空心標記保留到「下一次落子」
     pendingClearSquareMarkers = true;
 
     logLine(`${turnName(1)} 提子：移除自己 4 子（面積 ${sq.area}），得分 +${sq.area}。`);
@@ -370,12 +559,11 @@
   }
 
   function renderAll(){
-    // stones + base classes
     for (let y=0; y<N; y++){
       for (let x=0; x<N; x++){
         const c = cellEls[y][x];
         c.innerHTML = "";
-        c.classList.remove("disabled","lastmove","playable");
+        c.classList.remove("disabled","lastmove");
         const v = board[y][x];
         if (v === 1){
           const s = document.createElement("div");
@@ -389,37 +577,31 @@
       }
     }
 
-    // last move marker
     if (lastMove && inBoard(lastMove.x, lastMove.y)) cellEls[lastMove.y][lastMove.x].classList.add("lastmove");
 
-    // top pills
     elPhaseText.textContent = (phase === "place") ? "下棋階段" : "提子階段";
     elTurnText.textContent = `${turnName(turn)}回合`;
     elTurnDot.className = "dot " + (turn === 1 ? "black" : "white");
     elScoreB.textContent = scoreB;
     elScoreW.textContent = scoreW;
 
-    // playable highlighting + disable
     for (let y=0; y<N; y++){
       for (let x=0; x<N; x++){
         const c = cellEls[y][x];
         c.classList.remove("disabled");
-    
+
         if (phase === "place"){
-          // 下棋階段
           if (board[y][x] !== 0 || placedThisTurn || turn !== 1){
             c.classList.add("disabled");
           }
         } else {
-          // capture 階段全部禁用（由右側按鈕操作）
           c.classList.add("disabled");
         }
       }
     }
 
-    // squares list refresh when entering capture on human turn
     if (phase === "capture" && turn === 1){
-      availableSquares = findSquares(1);
+      availableSquares = findSquares2D(1);
       renderSquares(availableSquares);
       elSqCount.textContent = availableSquares.length;
       if (availableSquares.length > 0 && !captureDoneThisTurn) logLine("此回合存在可用正方形：必須提子（可選要提哪個）。");
@@ -443,7 +625,7 @@
   function canEndTurn(){
     if (turn === 2) return false;
     if (phase === "place") return false;
-    if (availableSquares.length > 0) return captureDoneThisTurn; // 強制提子
+    if (availableSquares.length > 0) return captureDoneThisTurn;
     return true;
   }
 
@@ -453,12 +635,10 @@
     if (placedThisTurn) return;
     if (board[y][x] !== 0) return;
 
-    // 落子前：若上一手有「提子後保留的空心標記」，此刻清掉
     if (pendingClearSquareMarkers) {
       clearSquareMarkers();
       pendingClearSquareMarkers = false;
     } else {
-      // 也清掉「選正方形但尚未提子」的標記（避免跨手殘留）
       clearSquareMarkers();
     }
 
@@ -483,7 +663,6 @@
     captureDoneThisTurn = false;
     selectedSquareKey = null;
 
-    // 結束回合不清 sqcorner：若剛提子，標記保留到下一次落子（CPU 落子也算）
     turn = 2;
     renderAll();
     checkWinMaybe();
@@ -492,14 +671,17 @@
 
   function maybeCpuAuto(){
     if (turn !== 2) return;
+
     setTimeout(() => {
-      cpuPlace();        // CPU 落子時會處理 pendingClearSquareMarkers
+      cpuPlaceAlphaBeta();
+
       phase = "capture";
       captureDoneThisTurn = false;
       selectedSquareKey = null;
 
-      availableSquares = findSquares(2);
-      if (availableSquares.length === 0){
+      const b1 = flattenBoard2D(board);
+      const squares = aiFindFullSquares(b1, 2);
+      if (squares.length === 0){
         logLine(`白方（CPU）沒有可用正方形，無法提子。`);
         captureDoneThisTurn = true;
         checkWinMaybe();
@@ -507,12 +689,13 @@
         return;
       }
 
-      const sq = availableSquares[0]; // 最大面積
-      // 提子：移除自己四顆
-      sq.cells.forEach(c => { if (board[c.y][c.x] === 2) board[c.y][c.x] = 0; });
+      const sq = squares[0];
+      for (const id of sq.idxs){
+        const {x,y} = xyOf(id);
+        if (board[y][x] === 2) board[y][x] = 0;
+      }
       addScore(2, sq.area);
 
-      // CPU 提子後也保留標記到下一次落子
       clearSquareMarkers();
       markSquareCorners(sq.cells);
       pendingClearSquareMarkers = true;
@@ -523,7 +706,7 @@
       renderAll();
       checkWinMaybe();
       setTimeout(endTurnCPU, 300);
-    }, 300);
+    }, 250);
   }
 
   function endTurnCPU(){
@@ -535,9 +718,7 @@
     renderAll();
   }
 
-  // ===== Smarter CPU placement =====
-  function cpuPlace(){
-    // CPU 落子前：若上一手提子留下標記，現在清掉（符合「保留直到對方/己方落子」）
+  function cpuPlaceAlphaBeta(){
     if (pendingClearSquareMarkers) {
       clearSquareMarkers();
       pendingClearSquareMarkers = false;
@@ -545,27 +726,16 @@
       clearSquareMarkers();
     }
 
-    const my = imminentMoves(2);
-    let pick = pickBestFromMoveMap(my);
-    if (!pick) pick = pickBestFromMoveMap(imminentMoves(1));
-    if (!pick) {
-      const empties = [];
-      for (let yy=0; yy<N; yy++) for (let xx=0; xx<N; xx++) if (board[yy][xx] === 0) empties.push({x:xx,y:yy});
-      if (empties.length === 0){ logLine("棋盤已滿。"); return; }
-      pick = empties[Math.floor(Math.random()*empties.length)];
+    const best = aiPickBestMove();
+    if (!best){
+      logLine("棋盤已滿。");
+      return;
     }
 
-    board[pick.y][pick.x] = 2;
-    lastMove = {x: pick.x, y: pick.y};
+    board[best.y][best.x] = 2;
+    lastMove = {x: best.x, y: best.y};
 
-    const k = keyXY(pick.x, pick.y);
-    let note = "";
-    if (my.has(k)) note = `（完成正方形機會：最高面積 ${my.get(k).bestArea}）`;
-    else {
-      const oppNow = imminentMoves(1);
-      if (oppNow.has(k)) note = `（阻擋黑方機會：最高面積 ${oppNow.get(k).bestArea}）`;
-    }
-    logLine(`白方（CPU）下在 (${pick.x+1},${pick.y+1})。${note}`);
+    logLine(`白方（CPU）下在 (${best.x+1},${best.y+1})。（alpha-beta 深度 ${CPU_PLY}；全盤掃描空格）`);
     renderAll();
   }
 
@@ -587,62 +757,8 @@
     }
   }
 
-  // ===== Precompute all possible squares =====
-  const ALL_SQUARES = (() => {
-    const m = new Map();
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      for (let dx = -8; dx <= 8; dx++) for (let dy = -8; dy <= 8; dy++) {
-        if (dx === 0 && dy === 0) continue;
-        const p = { x, y };
-        const q = { x: x + dx, y: y + dy };
-        if (!inBoard(q.x, q.y)) continue;
-        for (const [rx, ry] of [[-dy, dx], [dy, -dx]]) {
-          const r = { x: x + rx, y: y + ry };
-          const s = { x: q.x + rx, y: q.y + ry };
-          if (!inBoard(r.x, r.y) || !inBoard(s.x, s.y)) continue;
-          const cells = [p, q, r, s].map(z => ({ x: z.x, y: z.y }));
-          const canon = cells.map(c => keyXY(c.x, c.y)).sort().join("|");
-          if (!m.has(canon)) m.set(canon, { cells, area: dx*dx + dy*dy, key: canon });
-        }
-      }
-    }
-    return Array.from(m.values()).sort((a, b) => b.area - a.area);
-  })();
-
-  function imminentMoves(color) {
-    const res = new Map();
-    for (const sq of ALL_SQUARES) {
-      let mine = 0, empty = 0, emptyCell = null, blocked = false;
-      for (const c of sq.cells) {
-        const v = board[c.y][c.x];
-        if (v === color) mine++;
-        else if (v === 0) { empty++; emptyCell = c; }
-        else { blocked = true; break; }
-      }
-      if (blocked) continue;
-      if (mine === 3 && empty === 1 && emptyCell) {
-        const k = keyXY(emptyCell.x, emptyCell.y);
-        const cur = res.get(k) || { bestArea: 0, sumArea: 0, x: emptyCell.x, y: emptyCell.y };
-        cur.bestArea = Math.max(cur.bestArea, sq.area);
-        cur.sumArea += sq.area;
-        res.set(k, cur);
-      }
-    }
-    return res;
-  }
-
-  function pickBestFromMoveMap(moveMap) {
-    let best = null;
-    for (const v of moveMap.values()) {
-      if (!best) best = v;
-      else if (v.bestArea > best.bestArea) best = v;
-      else if (v.bestArea === best.bestArea && v.sumArea > best.sumArea) best = v;
-    }
-    return best;
-  }
-
-  // ===== Find actual squares for capture list =====
-  function findSquares(color){
+  // ===== Find squares for UI list (2D) =====
+  function findSquares2D(color){
     const pts = [];
     for (let y=0; y<N; y++) for (let x=0; x<N; x++) if (board[y][x] === color) pts.push({x,y});
     const has = new Set(pts.map(p => keyXY(p.x,p.y)));
@@ -671,7 +787,6 @@
     return Array.from(sqMap.values()).sort((a,b) => b.area - a.area);
   }
 
-  // ===== square list =====
   function renderSquares(squares){
     elSqList.innerHTML = "";
     if (!squares || squares.length === 0){
@@ -704,8 +819,6 @@
         if (availableSquares.length === 0) return;
 
         selectedSquareKey = sq.key;
-
-        // 選擇正方形：顯示空心圈（不設定 pendingClear，因為還沒提子）
         clearSquareMarkers();
         markSquareCorners(sq.cells);
 
