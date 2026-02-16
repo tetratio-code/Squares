@@ -186,10 +186,10 @@
       <div class="topbar">
         <div>
           <h1>正方形提子棋 v1.9（3moves）</h1>
-          <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU（alpha-beta 2–3 ply）。每回合：下棋 →（若可提子則必須提子）→ 結束回合。</div>
+          <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU（alpha-beta 2–3 ply）。每回合：下棋 →（若可提子則必須提子）→ 自動結束回合。</div>
         </div>
         <div class="scoreRow">
-          <div class="pill"><span class="dot black" id="turnDot"></span><span id="turnText">黑方回合</span></div>
+          <div class="pill"><span class="dot black" id="turnDot"></span><span id="turnText">黑回合</span></div>
           <div class="pill"><span class="dot phase"></span><span id="phaseText">下棋階段</span></div>
           <div class="pill"><span>黑分：</span><b id="scoreB">0</b></div>
           <div class="pill"><span>白分：</span><b id="scoreW">0</b></div>
@@ -223,8 +223,8 @@
         ○ 空心圈＝目前選中的正方形四角（提子後會保留，直到下一次落子）<br><br>
         操作提示：<br>
         1) 下棋階段：點空格下 1 顆。<br>
-        2) 若可提子：先在右側選正方形，按「提子」得分。<br>
-        3) 若無可提子：可直接結束回合。<br><br>
+        2) 若可提子：先在右側選正方形，按「提子」得分（提完自動結束回合）。<br>
+        3) 若無可提子：自動結束回合。<br><br>
         <b>提子規則：</b>提子階段，若「當前玩家的任四顆棋」能形成正方形（斜的也算），即可將「這四顆自己的棋」提掉，並獲得該正方形面積分數（= 邊長²）。<br>
         <b>強制提子：</b>若存在可用正方形，本回合必須提子（可選要提哪一個正方形）。
       </div>
@@ -238,7 +238,7 @@
 
   // ===== CPU strength knobs =====
   const CPU_PLY = 3;           // 2 或 3：3 更強但更慢
-  const CAPTURE_BRANCH = 3;    // 提子分支：只看面積最大的前 K 個（仍保留）
+  const CAPTURE_BRANCH = 3;    // 提子分支：只看面積最大的前 K 個
 
   // ===== helpers =====
   function inBoard(x,y){ return x>=0 && x<N && y>=0 && y<N; }
@@ -264,6 +264,7 @@
   let pendingClearSquareMarkers = false;
 
   // ===== DOM =====
+  const elBoard = document.getElementById("board");           // ✅ FIX: 原本漏掉會直接炸
   const elPhaseText = document.getElementById("phaseText");
   const elTurnText = document.getElementById("turnText");
   const elTurnDot  = document.getElementById("turnDot");
@@ -273,9 +274,9 @@
   const elSqCount = document.getElementById("sqCount");
   const elLog = document.getElementById("log");
   const btnSkipCapture = document.getElementById("btnSkipCapture");
-  const btnEndTurn = document.getElementById("btnEndTurn");
   const btnRestart = document.getElementById("btnRestart");
   const btnCaptureSquare = document.getElementById("btnCaptureSquare");
+  // ✅ FIX: btnEndTurn 已移除，不再抓取
 
   // ===== build grid =====
   const cellEls = Array.from({length:N}, () => Array(N).fill(null));
@@ -344,7 +345,7 @@
       const a = sq.idxs;
       if (b1[a[0]]===color && b1[a[1]]===color && b1[a[2]]===color && b1[a[3]]===color) out.push(sq);
     }
-    return out; // ALL_SQUARES 已按面積大到小，所以 out 也大到小
+    return out;
   }
 
   function aiCountImminent(b1, color){
@@ -372,7 +373,7 @@
     for (let i=0; i<N*N; i++){
       if (b1[i] === 0) arr.push(i);
     }
-    return arr; // 最多 81（視空格數而定）
+    return arr; // 掃全盤（最多 81）
   }
 
   function aiEval(b1, sB, sW){
@@ -382,8 +383,8 @@
     const bIm = aiCountImminent(b1, 1);
     const imminentTerm =
       (wIm.bestArea - bIm.bestArea) * 2.5 +
-      (wIm.sumArea - bIm.sumArea) * 0.15 +
-      (wIm.count - bIm.count) * 1.0;
+      (wIm.sumArea  - bIm.sumArea ) * 0.15 +
+      (wIm.count    - bIm.count   ) * 1.0;
 
     let wSt=0, bSt=0;
     for (let i=0;i<N*N;i++){
@@ -447,11 +448,7 @@
 
       for (const cap of captureChoices){
         const st = aiSimTurn(b1, sB, sW, turnColor, m, cap);
-
-        const v = alphabeta(
-          st.b1, st.sB, st.sW, st.nextTurn,
-          depth - 1, alpha, beta
-        );
+        const v = alphabeta(st.b1, st.sB, st.sW, st.nextTurn, depth - 1, alpha, beta);
 
         if (isMax){
           if (v > best) best = v;
@@ -498,28 +495,24 @@
   // ===== game flow =====
   btnSkipCapture.addEventListener("click", () => {
     if (phase !== "capture" || turn !== 1) return;
-    if (availableSquares.length > 0) {
-      //logLine("此回合存在可用正方形，必須提子（可選要提哪個）。");
-      return;
-    }
+    if (availableSquares.length > 0) return; // 強制提子：有正方形就不能跳過
+
     captureDoneThisTurn = true;
     selectedSquareKey = null;
     renderSquares([]);
     logLine(`${turnName(turn)} 跳過提子。`);
-    updateButtons();
+
+    if (!isGameOver()){
+      setTimeout(() => endTurn(), 200); // ✅ 沒得提 = 自動結束回合
+    }
   });
 
+  // ✅ FIX: 提子按鈕邏輯修正（不再把「沒正方形」塞在這裡）
   btnCaptureSquare.addEventListener("click", () => {
     if (phase !== "capture" || turn !== 1) return;
     if (captureDoneThisTurn) return;
-
-    if (availableSquares.length === 0){
-      //logLine(`${turnName(1)} 沒有可用正方形，本回合無法提子。自動結束回合。`);
-      // 小延遲讓 UI/Log 看得到
-      setTimeout(() => { if (!isGameOver()) endTurn(); }, 200);
-    } else {
-      //logLine(`請先在右側選一個正方形，按「提子（移除4子）」得分（此回合強制提子）。`);
-    }
+    if (availableSquares.length === 0) return;
+    if (!selectedSquareKey) return;
 
     const sq = availableSquares.find(s => s.key === selectedSquareKey);
     if (!sq) return;
@@ -530,13 +523,14 @@
     captureDoneThisTurn = true;
     pendingClearSquareMarkers = true;
 
-    logLine(`${turnName(1)}  +${sq.area}。`);
+    logLine(`${turnName(1)} +${sq.area}`);
     selectedSquareKey = null;
+
     renderAll();
     checkWinMaybe();
+
     if (!isGameOver()){
-      //logLine("已完成提子，自動結束回合。");
-      setTimeout(() => endTurn(), 250);
+      setTimeout(() => endTurn(), 250); // ✅ 提子後自動結束回合
     }
   });
 
@@ -556,7 +550,7 @@
     elLog.textContent = "";
     clearSquareMarkers();
     renderAll();
-    logLine("新局開始：黑棋先行。");
+    logLine("新局開始：黑先。");
   }
 
   function renderAll(){
@@ -605,7 +599,6 @@
       availableSquares = findSquares2D(1);
       renderSquares(availableSquares);
       elSqCount.textContent = availableSquares.length;
-      //if (availableSquares.length > 0 && !captureDoneThisTurn) logLine("此回合存在可用正方形：必須提子（可選要提哪個）。");
     } else {
       renderSquares([]);
       elSqCount.textContent = 0;
@@ -628,6 +621,7 @@
     if (placedThisTurn) return;
     if (board[y][x] !== 0) return;
 
+    // 下一次落子才清掉提子標記（符合需求）
     if (pendingClearSquareMarkers) {
       clearSquareMarkers();
       pendingClearSquareMarkers = false;
@@ -646,8 +640,10 @@
     selectedSquareKey = null;
     renderAll();
 
-    //if (availableSquares.length === 0) logLine(`${turnName(1)} 沒有可用正方形，本回合無法提子。可直接結束回合。`);
-    //else logLine(`請先在右側選一個正方形，按「提子（移除4子）」得分（此回合強制提子）。`);
+    // ✅ FIX: 玩家落子後若無可提正方形 -> 自動結束回合
+    if (availableSquares.length === 0 && !isGameOver()){
+      setTimeout(() => endTurn(), 200);
+    }
   }
 
   function endTurn(){
@@ -675,7 +671,6 @@
       const b1 = flattenBoard2D(board);
       const squares = aiFindFullSquares(b1, 2);
       if (squares.length === 0){
-        //logLine(`白方（CPU）沒有可用正方形，無法提子。`);
         captureDoneThisTurn = true;
         checkWinMaybe();
         setTimeout(endTurnCPU, 250);
@@ -818,7 +813,6 @@
         markSquareCorners(sq.cells);
 
         renderSquares(availableSquares);
-        //logLine(`已選正方形（面積 ${sq.area}）：按「提子（移除4子）」即可得分。`);
         updateButtons();
       });
 
