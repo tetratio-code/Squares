@@ -185,7 +185,7 @@
     <div class="card boardCard">
       <div class="topbar">
         <div>
-          <h1>正方形提子棋 v1.8（3moves）</h1>
+          <h1>正方形提子棋 v1.9（3moves）</h1>
           <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU（alpha-beta 2–3 ply）。每回合：下棋 →（若可提子則必須提子）→ 結束回合。</div>
         </div>
         <div class="scoreRow">
@@ -212,7 +212,6 @@
       <div class="btnRow">
         <button class="primary" id="btnCaptureSquare">提子（移除4子）</button>
         <button class="primary" id="btnSkipCapture">跳過提子</button>
-        <button class="primary" id="btnEndTurn">結束回合 →</button>
         <button class="danger" id="btnRestart">重新開始</button>
       </div>
 
@@ -265,7 +264,6 @@
   let pendingClearSquareMarkers = false;
 
   // ===== DOM =====
-  const elBoard = document.getElementById("board");
   const elPhaseText = document.getElementById("phaseText");
   const elTurnText = document.getElementById("turnText");
   const elTurnDot  = document.getElementById("turnDot");
@@ -515,8 +513,13 @@
     if (phase !== "capture" || turn !== 1) return;
     if (captureDoneThisTurn) return;
 
-    //if (availableSquares.length === 0) { logLine("目前沒有可用正方形，無法提子。"); return; }
-    //if (!selectedSquareKey) { logLine("請先在右側選一個正方形。"); return; }
+    if (availableSquares.length === 0){
+      //logLine(`${turnName(1)} 沒有可用正方形，本回合無法提子。自動結束回合。`);
+      // 小延遲讓 UI/Log 看得到
+      setTimeout(() => { if (!isGameOver()) endTurn(); }, 200);
+    } else {
+      //logLine(`請先在右側選一個正方形，按「提子（移除4子）」得分（此回合強制提子）。`);
+    }
 
     const sq = availableSquares.find(s => s.key === selectedSquareKey);
     if (!sq) return;
@@ -531,11 +534,10 @@
     selectedSquareKey = null;
     renderAll();
     checkWinMaybe();
-  });
-
-  btnEndTurn.addEventListener("click", () => {
-    if (!canEndTurn()) return;
-    endTurn();
+    if (!isGameOver()){
+      //logLine("已完成提子，自動結束回合。");
+      setTimeout(() => endTurn(), 250);
+    }
   });
 
   btnRestart.addEventListener("click", () => resetGame());
@@ -618,14 +620,6 @@
 
     btnCaptureSquare.disabled = !(isHumanCapture && mustCapture && !!selectedSquareKey);
     btnSkipCapture.disabled = !(isHumanCapture && !mustCapture);
-    btnEndTurn.disabled = !canEndTurn();
-  }
-
-  function canEndTurn(){
-    if (turn === 2) return false;
-    if (phase === "place") return false;
-    if (availableSquares.length > 0) return captureDoneThisTurn;
-    return true;
   }
 
   function onCellClick(x,y){
@@ -752,8 +746,10 @@
       for (let y=0; y<N; y++) for (let x=0; x<N; x++) cellEls[y][x].classList.add("disabled");
       btnCaptureSquare.disabled = true;
       btnSkipCapture.disabled = true;
-      btnEndTurn.disabled = true;
     }
+  }
+  function isGameOver(){
+    return scoreB >= TARGET || scoreW >= TARGET;
   }
 
   // ===== Find squares for UI list (2D) =====
