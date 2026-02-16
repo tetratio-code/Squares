@@ -185,7 +185,7 @@
     <div class="card boardCard">
       <div class="topbar">
         <div>
-          <h1>正方形提子棋 v1.9（3moves）</h1>
+          <h1>正方形提子棋 v1.10（3moves）</h1>
           <div class="sub">黑棋先行（玩家＝黑），白棋為智慧 CPU（alpha-beta 2–3 ply）。每回合：下棋 →（若可提子則必須提子）→ 自動結束回合。</div>
         </div>
         <div class="scoreRow">
@@ -264,7 +264,7 @@
   let pendingClearSquareMarkers = false;
 
   // ===== DOM =====
-  const elBoard = document.getElementById("board");           // ✅ FIX: 原本漏掉會直接炸
+  const elBoard = document.getElementById("board");
   const elPhaseText = document.getElementById("phaseText");
   const elTurnText = document.getElementById("turnText");
   const elTurnDot  = document.getElementById("turnDot");
@@ -377,13 +377,13 @@
   }
 
   function aiEval(b1, sB, sW){
-    const scoreTerm = (sW - sB) * 120;
+    const scoreTerm = (sW - sB) * 100;
 
     const wIm = aiCountImminent(b1, 2);
     const bIm = aiCountImminent(b1, 1);
     const imminentTerm =
       (wIm.bestArea - bIm.bestArea) * 2.5 +
-      (wIm.sumArea  - bIm.sumArea ) * 0.15 +
+      (wIm.sumArea  - bIm.sumArea ) * 2.5 +
       (wIm.count    - bIm.count   ) * 1.0;
 
     let wSt=0, bSt=0;
@@ -391,7 +391,7 @@
       if (b1[i]===2) wSt++;
       else if (b1[i]===1) bSt++;
     }
-    const stoneTerm = (wSt - bSt) * 0.2;
+    const stoneTerm = (wSt - bSt) * 2.5;
 
     return scoreTerm + imminentTerm + stoneTerm;
   }
