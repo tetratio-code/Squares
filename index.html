@@ -604,7 +604,7 @@
       availableSquares = findSquares2D(1);
       renderSquares(availableSquares);
       elSqCount.textContent = availableSquares.length;
-      if (availableSquares.length > 0 && !captureDoneThisTurn) logLine("此回合存在可用正方形：必須提子（可選要提哪個）。");
+      //if (availableSquares.length > 0 && !captureDoneThisTurn) logLine("此回合存在可用正方形：必須提子（可選要提哪個）。");
     } else {
       renderSquares([]);
       elSqCount.textContent = 0;
@@ -646,7 +646,7 @@
     lastMove = {x,y};
     placedThisTurn = true;
 
-    logLine(`${turnName(1)} (${x+1},${y+1})。`);
+    logLine(`${turnName(1)} (${x+1},${y+1})`);
 
     phase = "capture";
     captureDoneThisTurn = false;
@@ -700,7 +700,7 @@
       markSquareCorners(sq.cells);
       pendingClearSquareMarkers = true;
 
-      logLine(`+${sq.area}。`);
+      logLine(`+${sq.area}`);
       captureDoneThisTurn = true;
 
       renderAll();
