@@ -276,7 +276,6 @@
   const btnSkipCapture = document.getElementById("btnSkipCapture");
   const btnRestart = document.getElementById("btnRestart");
   const btnCaptureSquare = document.getElementById("btnCaptureSquare");
-  // ✅ FIX: btnEndTurn 已移除，不再抓取
 
   // ===== build grid =====
   const cellEls = Array.from({length:N}, () => Array(N).fill(null));
@@ -503,11 +502,10 @@
     logLine(`${turnName(turn)} 跳過提子。`);
 
     if (!isGameOver()){
-      setTimeout(() => endTurn(), 200); // ✅ 沒得提 = 自動結束回合
+      setTimeout(() => endTurn(), 200); 
     }
   });
 
-  // ✅ FIX: 提子按鈕邏輯修正（不再把「沒正方形」塞在這裡）
   btnCaptureSquare.addEventListener("click", () => {
     if (phase !== "capture" || turn !== 1) return;
     if (captureDoneThisTurn) return;
@@ -523,14 +521,14 @@
     captureDoneThisTurn = true;
     pendingClearSquareMarkers = true;
 
-    logLine(`${turnName(1)} +${sq.area}`);
+    logLine( +${sq.area}`);
     selectedSquareKey = null;
 
     renderAll();
     checkWinMaybe();
 
     if (!isGameOver()){
-      setTimeout(() => endTurn(), 250); // ✅ 提子後自動結束回合
+      setTimeout(() => endTurn(), 250); 
     }
   });
 
