@@ -204,7 +204,7 @@
     <div class="card boardCard">
       <div class="topbar">
         <div>
-          <h1>正方形提子棋 v1.13（可選 AI 執黑/白）</h1>
+          <h1>正方形提子棋 v1.14</h1>
           <div class="sub">可選 AI 執黑或執白。每回合：下棋 →（若可提子則必須提子）→ 自動結束回合。</div>
         </div>
         <div class="scoreRow">
@@ -455,7 +455,43 @@
   function aiIsTerminal(sB, sW){
     return (sB >= TARGET || sW >= TARGET);
   }
-
+  
+  function orderMovesBy1Ply(b1, sB, sW, turnColor, depth, alpha, beta, aiColor){
+    const moves = aiCandidateMoves(b1);
+    if (moves.length <= 1) return moves;
+  
+    const isMax = (turnColor === aiColor);
+  
+    // 只做 1-ply 排序：對每個落子 m，考慮 CAPTURE_BRANCH 個提子選擇
+    const scored = moves.map(m => {
+      const afterPlace = b1.slice();
+      afterPlace[m] = turnColor;
+  
+      const squares = aiFindFullSquares(afterPlace, turnColor);
+      const captureChoices = (squares.length === 0) ? [null] : squares.slice(0, CAPTURE_BRANCH);
+  
+      // 這一步的「提子選擇」會由當前玩家挑最有利的，所以：
+      // MAX 節點取最大評分；MIN 節點取最小評分（用 aiEval 作近似）
+      let best1 = isMax ? -Infinity : Infinity;
+  
+      for (const cap of captureChoices){
+        const st = aiSimTurn(b1, sB, sW, turnColor, m, cap);
+        const e = aiEval(st.b1, st.sB, st.sW, aiColor);
+  
+        if (isMax){
+          if (e > best1) best1 = e;
+        } else {
+          if (e < best1) best1 = e;
+        }
+      }
+  
+      return { m, best1 };
+    });
+  
+    scored.sort((A,B) => isMax ? (B.best1 - A.best1) : (A.best1 - B.best1));
+    return scored.map(x => x.m);
+  }
+  
   function alphabeta(b1, sB, sW, turnColor, depth, alpha, beta, aiColor){
     if (aiIsTerminal(sB, sW) || depth <= 0){
       // 終局：AI 贏/輸給超大分，避免「差一步贏卻下無意義」
@@ -464,9 +500,14 @@
       return aiEval(b1, sB, sW, aiColor);
     }
 
-    const moves = aiCandidateMoves(b1);
+    let moves = aiCandidateMoves(b1);
     if (moves.length === 0) return aiEval(b1, sB, sW, aiColor);
-
+    
+    // ✅ 1-ply move ordering（建議只在 depth>=2 做，效果更好也比較不浪費）
+    if (depth >= 2) {
+      moves = orderMovesBy1Ply(b1, sB, sW, turnColor, depth, alpha, beta, aiColor);
+    }
+    
     const isMax = (turnColor === aiColor);
     let best = isMax ? -Infinity : Infinity;
 
@@ -499,7 +540,8 @@
 
   function aiPickBestMove(aiColor){
     const b1 = flattenBoard2D(board);
-    const moves = aiCandidateMoves(b1);
+    let moves = aiCandidateMoves(b1);
+    moves = orderMovesBy1Ply(b1, scoreB, scoreW, aiColor, CPU_PLY, -Infinity, Infinity, aiColor);
     if (moves.length === 0) return null;
 
     let bestMove = moves[0];
