@@ -3,923 +3,450 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>正方形提子棋</title>
+  <title>正方形提子棋 Bitboard 版</title>
   <style>
-    :root{
-      --bg:#101a33;
-      --panel:#0f1a33;
-      --line:#1f2a44;
-      --text:#e8eefc;
-      --muted:#a9b6d6;
-      --black:#0b0b0b;
-      --white:#f2f2f2;
-      --accent:#6aa9ff;
-      --danger:#ff6a7a;
+    :root {
+      --bg: #0a0f1e;
+      --panel: #111a33;
+      --accent: #4a90e2;
+      --danger: #e74c3c;
+      --text: #e0e6ed;
+      --muted: #8892b0;
+    }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text);
+      display: flex; justify-content: center; padding: 20px;
+    }
+    .container {
+      display: grid; grid-template-columns: 1fr 300px; gap: 20px;
+      max-width: 1000px; width: 100%;
+    }
+    .card {
+      background: var(--panel); border-radius: 12px; padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .board {
+      display: grid; grid-template-columns: repeat(9, 1fr);
+      gap: 2px; background: #1f2a44; border: 4px solid #1f2a44;
+      aspect-ratio: 1/1; width: 100%; max-width: 550px; margin: 0 auto;
+    }
+    .cell {
+      background: var(--panel); display: flex; align-items: center;
+      justify-content: center; cursor: pointer; position: relative;
+    }
+    .cell:hover { background: #1a264d; }
+    .stone {
+      width: 75%; height: 75%; border-radius: 50%;
+      transition: transform 0.2s; z-index: 2;
+    }
+    .stone.black { background: #111; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }
+    .stone.white { background: #fff; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
+    
+    .last-move::after {
+      content: ""; position: absolute; width: 8px; height: 8px;
+      background: #f1c40f; border-radius: 50%; z-index: 3;
+    }
+    .highlight-sq::before {
+      content: ""; position: absolute; width: 90%; height: 90%;
+      border: 2px solid var(--accent); border-radius: 50%; z-index: 1;
     }
 
-    body{
-      margin:0;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Noto Sans TC", Arial;
-      background:
-        radial-gradient(1200px 800px at 20% 10%, #223a7a 0%, var(--bg) 55%),
-        radial-gradient(900px 700px at 85% 15%, rgba(106,169,255,.18) 0%, rgba(0,0,0,0) 55%);
-      color:var(--text);
+    .info-panel { display: flex; flex-direction: column; gap: 15px; }
+    .stat-box {
+      display: flex; justify-content: space-between; padding: 10px;
+      background: rgba(255,255,255,0.05); border-radius: 8px;
     }
-
-    .wrap{
-      max-width:1100px; margin:24px auto; padding:0 16px;
-      display:grid; gap:16px; grid-template-columns: 1fr 320px;
+    .log {
+      height: 150px; overflow-y: auto; background: #000;
+      padding: 10px; font-size: 12px; color: #0f0; font-family: monospace;
+      border-radius: 5px;
     }
-    .card{
-      background:rgba(15,26,51,.88);
-      border:1px solid rgba(255,255,255,.10);
-      border-radius:16px;
-      box-shadow: 0 12px 32px rgba(0,0,0,.35);
+    button {
+      padding: 12px; border: none; border-radius: 6px; cursor: pointer;
+      font-weight: bold; transition: 0.2s;
     }
-    .boardCard{ padding:16px; }
-    .side{ padding:16px; display:flex; flex-direction:column; gap:12px; }
-    h1{ font-size:18px; margin:0 0 8px 0; letter-spacing:.5px; }
-    .sub{ color:var(--muted); font-size:13px; line-height:1.5; }
-
-    .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
-    .pill{
-      display:inline-flex; align-items:center; gap:8px; padding:8px 10px;
-      border-radius:999px; background: rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.10); font-size:13px;
-    }
-    .dot{ width:10px; height:10px; border-radius:50%; }
-    .dot.black{ background:var(--black); box-shadow:0 0 0 2px rgba(255,255,255,.15) inset; }
-    .dot.white{ background:var(--white); box-shadow:0 0 0 2px rgba(0,0,0,.18) inset; }
-    .dot.phase{ background:var(--accent); }
-    .scoreRow{ display:flex; gap:8px; flex-wrap:wrap; }
-
-    .board{
-      width:min(78vmin, 620px);
-      aspect-ratio:1/1;
-      margin:0 auto;
-      display:grid;
-      grid-template-columns: repeat(9, 1fr);
-      border-radius:14px;
-      overflow:hidden;
-      border:3px solid rgba(255,255,255,.25);
-      background: rgba(0,0,0,.10);
-    }
-
-    .cell{
-      position:relative;
-      border:2px solid rgba(255,255,255,.18);
-      display:flex; align-items:center; justify-content:center;
-      cursor:pointer; user-select:none;
-      background: rgba(255,255,255,.10);
-    }
-    .cell.disabled{ cursor:not-allowed; opacity:.95; }
-
-    .stone{
-      width:70%; height:70%;
-      border-radius:50%;
-      transform: translateZ(0);
-      box-shadow: 0 10px 16px rgba(0,0,0,.35);
-      position:relative;
-      z-index: 1;
-    }
-    .stone.black{
-      background: radial-gradient(circle at 30% 30%, #2a2a2a 0%, var(--black) 65%);
-      outline: 1px solid rgba(255,255,255,.08);
-    }
-    .stone.white{
-      background: radial-gradient(circle at 30% 30%, #ffffff 0%, var(--white) 65%);
-      outline: 1px solid rgba(0,0,0,.10);
-    }
-
-    .cell.lastmove::after{
-      content:"";
-      position:absolute;
-      width:10px; height:10px;
-      border-radius:50%;
-      background: rgba(255, 215, 102, .95);
-      box-shadow: 0 0 0 2px rgba(0,0,0,.35);
-      z-index: 3;
-      top:50%; left:50%;
-      transform: translate(-50%,-50%);
-      pointer-events:none;
-    }
-
-    .cell.sqcorner::before{
-      content:"";
-      position:absolute;
-      width:22px; height:22px;
-      border-radius:50%;
-      border: 2px solid rgba(106,169,255,.95);
-      box-shadow: 0 0 0 2px rgba(0,0,0,.22) inset;
-      z-index: 2;
-      top:50%; left:50%;
-      transform: translate(-50%,-50%);
-      pointer-events:none;
-    }
-
-    .btnRow{ display:flex; gap:10px; flex-wrap:wrap; }
-    button{
-      border:1px solid rgba(255,255,255,.14);
-      background: rgba(255,255,255,.06);
-      color: var(--text);
-      padding:10px 12px;
-      border-radius:12px;
-      cursor:pointer;
-      font-weight:600;
-      letter-spacing:.2px;
-    }
-    button:hover{ background: rgba(255,255,255,.10); }
-    button:disabled{ opacity:.45; cursor:not-allowed; }
-    .primary{ border-color: rgba(106,169,255,.45); background: rgba(106,169,255,.16); }
-    .primary:hover{ background: rgba(106,169,255,.22); }
-    .danger{ border-color: rgba(255,106,122,.45); background: rgba(255,106,122,.14); }
-    .danger:hover{ background: rgba(255,106,122,.20); }
-
-    .list{
-      max-height:260px;
-      overflow:auto;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.12);
-    }
-    .item{
-      padding:10px 10px;
-      border-bottom:1px solid rgba(255,255,255,.07);
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      font-size:13px;
-      cursor:pointer;
-    }
-    .item:last-child{ border-bottom:none; }
-    .item:hover{ background: rgba(255,255,255,.06); }
-    .item.sel{ background: rgba(106,169,255,.18); border-bottom-color: rgba(106,169,255,.25); }
-    .badge{
-      font-size:12px; color:var(--muted);
-      padding:3px 8px; border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.06);
-      white-space:nowrap;
-    }
-
-    .log{
-      font-size:13px; line-height:1.5;
-      color: var(--muted);
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.12);
-      padding:10px;
-      min-height:92px;
-      white-space:pre-wrap;
-    }
-
-    .footerHint{ color:var(--muted); font-size:12px; line-height:1.5; }
-
-    .choice{
-      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.10);
-      font-size:13px;
-      color:var(--text);
-    }
-    .choice label{
-      display:flex; gap:6px; align-items:center;
-      cursor:pointer;
-      padding:6px 8px;
-      border-radius:10px;
-      background: rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.10);
-    }
-    .choice input{ accent-color: var(--accent); }
-
-    @media (max-width: 920px){
-      .wrap{ grid-template-columns: 1fr; }
-      .board{ width:min(92vmin, 620px); }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:disabled { background: #444; cursor: not-allowed; }
+    
+    @media (max-width: 800px) {
+      .container { grid-template-columns: 1fr; }
     }
   </style>
 </head>
-
 <body>
-  <div class="wrap">
-    <div class="card boardCard">
-      <div class="topbar">
-        <div>
-          <h1>正方形提子棋 v1.14 (3moves)</h1>
-          <div class="sub">可選 AI 執黑或執白。每回合：下棋 →（若可提子則必須提子）→ 自動結束回合。</div>
-        </div>
-        <div class="scoreRow">
-          <div class="pill"><span class="dot black" id="turnDot"></span><span id="turnText">黑回合</span></div>
-          <div class="pill"><span class="dot phase"></span><span id="phaseText">下棋階段</span></div>
-          <div class="pill"><span>黑分：</span><b id="scoreB">0</b></div>
-          <div class="pill"><span>白分：</span><b id="scoreW">0</b></div>
-          <div class="pill"><span>目標：</span><b>81</b></div>
-        </div>
-      </div>
 
-      <div class="board" id="board"></div>
+<div class="container">
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+      <h2 style="margin:0">正方形提子棋 <small style="font-size:12px; color:var(--muted)">Bitboard Engine</small></h2>
+      <div id="status">黑方回合</div>
     </div>
-
-    <div class="card side">
-      <div class="choice">
-        <span style="color:var(--muted)">AI 執：</span>
-        <label><input type="radio" name="aiColor" value="white" checked> 白</label>
-        <label><input type="radio" name="aiColor" value="black"> 黑</label>
-        <span class="badge" id="roleHint">玩家＝黑，AI＝白</span>
-      </div>
-
-      <div>
-        <div class="pill" style="width:100%; justify-content:space-between;">
-          <span>可用正方形</span>
-          <span class="badge" id="sqCount">0</span>
-        </div>
-        <div class="list" id="sqList"></div>
-      </div>
-
-      <div class="btnRow">
-        <button class="primary" id="btnCaptureSquare">提子（移除4子）</button>
-        <button class="primary" id="btnSkipCapture">跳過提子</button>
-        <button class="danger" id="btnRestart">重新開始</button>
-      </div>
-
-      <div class="log" id="log"></div>
-
-      <div class="footerHint">
-        標記說明：<br>
-        ● 實心點＝上一步落子位置<br>
-        ○ 空心圈＝目前選中的正方形四角（提子後會保留，直到下一次落子）<br><br>
-        操作提示：<br>
-        1) 輪到玩家：點空格下 1 顆。<br>
-        2) 若可提子：右側選正方形，按「提子」得分（提完自動結束回合）。<br>
-        3) 若無可提子：自動結束回合。<br><br>
-        <b>提子規則：</b>提子階段，若「當前玩家的任四顆棋」能形成正方形（斜的也算），即可將「這四顆自己的棋」提掉，並獲得該正方形面積分數（= 邊長²）。<br>
-        <b>強制提子：</b>若存在可用正方形，本回合必須提子（可選要提哪一個正方形）。
-      </div>
-    </div>
+    <div class="board" id="board"></div>
   </div>
 
+  <div class="info-panel">
+    <div class="card">
+      <div class="stat-box"><span>黑方分數:</span><span id="score1">0</span></div>
+      <div class="stat-box"><span>白方分數:</span><span id="score2">0</span></div>
+      <div style="font-size:12px; margin-top:10px; color:var(--muted)">目標: 81 分</div>
+    </div>
+
+    <div class="card">
+      <div style="margin-bottom:8px">可用提子:</div>
+      <select id="sqSelect" size="5" style="width:100%; background:#1a264d; color:white; border:1px solid #333; border-radius:4px; padding:5px;"></select>
+      <button id="btnCapture" class="btn-primary" style="width:100%; margin-top:10px;" disabled>執行提子</button>
+    </div>
+
+    <div class="log" id="log"></div>
+    <button onclick="resetGame()" style="background:#333; color:white">重新開始</button>
+  </div>
+</div>
+
 <script>
-(() => {
-  const N = 9;
-  const TARGET = 81;
+/**
+ * BITBOARD ENGINE CONFIG
+ */
+const N = 9;
+const SIZE = N * N;
+const TARGET = 81;
+const AI_COLOR = 2; // 1:Black, 2:White
+const HUMAN_COLOR = 1;
 
-  // ===== CPU strength knobs =====
-  const CPU_PLY = 3;           // 計算深度
-  const CAPTURE_BRANCH = 3;    // 提子分支：只看面積最大的前 K 個
+// Bitboard logic using BigInt
+const bit = (i) => 1n << BigInt(i);
 
-  // ===== helpers =====
-  function inBoard(x,y){ return x>=0 && x<N && y>=0 && y<N; }
-  function idxOf(x,y){ return y*N + x; }
-  function xyOf(i){ return {x: i%N, y: Math.floor(i/N)}; }
-  function keyXY(x,y){ return `${x},${y}`; }
-  function other(t){ return t === 1 ? 2 : 1; }
-  function turnName(t){ return t === 1 ? "黑" : "白"; }
+// Precompute all possible squares
+const ALL_SQUARES = (() => {
+  const squares = [];
+  for (let y1 = 0; y1 < N; y1++) {
+    for (let x1 = 0; x1 < N; x1++) {
+      for (let y2 = 0; y2 < N; y2++) {
+        for (let x2 = 0; x2 < N; x2++) {
+          if (x1 === x2 && y1 === y2) continue;
+          
+          let dx = x2 - x1;
+          let dy = y2 - y1;
+          
+          // Based on P1, P2, find P3, P4 to form a square
+          // (x3, y3) = (x2 - dy, y2 + dx)
+          // (x4, y4) = (x1 - dy, y1 + dx)
+          let x3 = x2 - dy, y3 = y2 + dx;
+          let x4 = x1 - dy, y4 = y1 + dx;
 
-  // ===== role (can change) =====
-  let AI_COLOR = 2;    // 1 black, 2 white
-  let HUMAN_COLOR = 1;
-
-  // ===== state =====
-  let board = Array.from({length:N}, () => Array(N).fill(0));
-  let turn = 1;                 // 1 black, 2 white
-  let phase = "place";          // "place" | "capture"
-  let placedThisTurn = false;
-
-  let scoreB = 0, scoreW = 0;
-
-  let availableSquares = [];
-  let selectedSquareKey = null;
-  let captureDoneThisTurn = false;
-
-  let lastMove = null;          // {x,y}
-  let pendingClearSquareMarkers = false;
-
-  // ===== DOM =====
-  const elBoard = document.getElementById("board");
-  const elPhaseText = document.getElementById("phaseText");
-  const elTurnText = document.getElementById("turnText");
-  const elTurnDot  = document.getElementById("turnDot");
-  const elScoreB = document.getElementById("scoreB");
-  const elScoreW = document.getElementById("scoreW");
-  const elSqList = document.getElementById("sqList");
-  const elSqCount = document.getElementById("sqCount");
-  const elLog = document.getElementById("log");
-  const btnSkipCapture = document.getElementById("btnSkipCapture");
-  const btnRestart = document.getElementById("btnRestart");
-  const btnCaptureSquare = document.getElementById("btnCaptureSquare");
-  const roleHint = document.getElementById("roleHint");
-  const aiRadios = Array.from(document.querySelectorAll('input[name="aiColor"]'));
-
-  // ===== build grid =====
-  const cellEls = Array.from({length:N}, () => Array(N).fill(null));
-  for (let y=0; y<N; y++){
-    for (let x=0; x<N; x++){
-      const d = document.createElement("div");
-      d.className = "cell";
-      d.addEventListener("click", () => onCellClick(x,y));
-      elBoard.appendChild(d);
-      cellEls[y][x] = d;
-    }
-  }
-
-  // ===== UI marker helpers =====
-  function clearSquareMarkers(){
-    for (let y=0; y<N; y++) for (let x=0; x<N; x++) cellEls[y][x].classList.remove("sqcorner");
-  }
-  function markSquareCorners(cells){
-    cells.forEach(c => cellEls[c.y][c.x].classList.add("sqcorner"));
-  }
-  function logLine(s){
-    const cur = elLog.textContent.split("\n");
-    if (cur.length && cur[cur.length-1] === s) return;
-    elLog.textContent += (elLog.textContent ? "\n" : "") + s;
-    elLog.scrollTop = elLog.scrollHeight;
-  }
-
-  // ===== Precompute all possible squares (for AI) =====
-  const ALL_SQUARES = (() => {
-    const m = new Map();
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      for (let dx = -8; dx <= 8; dx++) for (let dy = -8; dy <= 8; dy++) {
-        if (dx === 0 && dy === 0) continue;
-        const p = { x, y };
-        const q = { x: x + dx, y: y + dy };
-        if (!inBoard(q.x, q.y)) continue;
-        for (const [rx, ry] of [[-dy, dx], [dy, -dx]]) {
-          const r = { x: x + rx, y: y + ry };
-          const s = { x: q.x + rx, y: q.y + ry };
-          if (!inBoard(r.x, r.y) || !inBoard(s.x, s.y)) continue;
-
-          const cells = [p, q, r, s].map(z => ({ x: z.x, y: z.y }));
-          const canon = cells.map(c => keyXY(c.x, c.y)).sort().join("|");
-          if (!m.has(canon)) {
-            const idxs = cells.map(c => idxOf(c.x, c.y));
-            m.set(canon, { cells, idxs, area: dx*dx + dy*dy, key: canon });
+          if (x3 >= 0 && x3 < N && y3 >= 0 && y3 < N && x4 >= 0 && x4 < N && y4 >= 0 && y4 < N) {
+            let mask = bit(y1*N+x1) | bit(y2*N+x2) | bit(y3*N+x3) | bit(y4*N+x4);
+            let area = dx*dx + dy*dy;
+            
+            // Avoid duplicates by storing unique mask
+            if (!squares.find(s => s.mask === mask)) {
+              squares.push({ mask, area, indices: [y1*N+x1, y2*N+x2, y3*N+x3, y4*N+x4] });
+            }
           }
         }
       }
     }
-    return Array.from(m.values()).sort((a, b) => b.area - a.area);
-  })();
-
-  // ===== AI helpers on 1D board =====
-  function flattenBoard2D(b2){
-    const a = new Uint8Array(N*N);
-    let k=0;
-    for (let y=0; y<N; y++) for (let x=0; x<N; x++) a[k++] = b2[y][x];
-    return a;
   }
-  function aiFindFullSquares(b1, color){
-    const out = [];
-    for (const sq of ALL_SQUARES){
-      const a = sq.idxs;
-      if (b1[a[0]]===color && b1[a[1]]===color && b1[a[2]]===color && b1[a[3]]===color) out.push(sq);
-    }
-    return out; // 已按面積大到小（繼承 ALL_SQUARES 排序）
-  }
-  function aiCountImminent(b1, color){
-    let bestArea = 0, sumArea = 0, count = 0;
-    for (const sq of ALL_SQUARES){
-      let mine=0, empty=0, blocked=false;
-      for (const id of sq.idxs){
-        const v = b1[id];
-        if (v === color) mine++;
-        else if (v === 0) empty++;
-        else { blocked = true; break; }
-      }
-      if (blocked) continue;
-      if (mine === 3 && empty === 1){
-        count++;
-        bestArea = Math.max(bestArea, sq.area);
-        sumArea += sq.area;
-      }
-    }
-    return {bestArea, sumArea, count};
-  }
-  function aiCandidateMoves(b1){
-    const arr = [];
-    for (let i=0; i<N*N; i++){
-      if (b1[i] === 0) arr.push(i);
-    }
-    return arr; // 掃全盤（最多 81）
-  }
-  function scoreOf(color, sB, sW){ return color === 1 ? sB : sW; }
-
-  function aiEval(b1, sB, sW, aiColor){
-    const opp = other(aiColor);
-
-    // 這套評分以「AI 視角」：越大越好
-    const scoreTerm = (scoreOf(aiColor, sB, sW) - scoreOf(opp, sB, sW)) * 10;
-
-    const aiIm  = aiCountImminent(b1, aiColor);
-    const oppIm = aiCountImminent(b1, opp);
-    const imminentTerm =
-      (aiIm.bestArea - oppIm.bestArea) * 2 +
-      (aiIm.sumArea  - oppIm.sumArea ) * 2 +
-      (aiIm.count    - oppIm.count   ) * 1;
-
-    let aiSt=0, oppSt=0;
-    for (let i=0;i<N*N;i++){
-      if (b1[i]===aiColor) aiSt++;
-      else if (b1[i]===opp) oppSt++;
-    }
-    const stoneTerm = (aiSt - oppSt) * 1;
-
-    return scoreTerm + imminentTerm + stoneTerm;
-  }
-
-  function aiApplyCapture(b1, color, sq){
-    const nb = b1.slice();
-    for (const id of sq.idxs){
-      if (nb[id] === color) nb[id] = 0;
-    }
-    return { nb, delta: sq.area, sq };
-  }
-
-  function aiSimTurn(b1, sB, sW, turnColor, placeIdx, captureSqOrNull){
-    const nb = b1.slice();
-    nb[placeIdx] = turnColor;
-
-    const squares = aiFindFullSquares(nb, turnColor);
-    if (squares.length === 0){
-      return { b1: nb, sB, sW, nextTurn: other(turnColor) };
-    }
-
-    const sq = captureSqOrNull || squares[0];
-    const {nb: nb2, delta} = aiApplyCapture(nb, turnColor, sq);
-    if (turnColor === 1) sB += delta;
-    else sW += delta;
-
-    return { b1: nb2, sB, sW, nextTurn: other(turnColor) };
-  }
-
-  function aiIsTerminal(sB, sW){
-    return (sB >= TARGET || sW >= TARGET);
-  }
-  
-  function orderMovesBy1Ply(b1, sB, sW, turnColor, depth, alpha, beta, aiColor){
-    const moves = aiCandidateMoves(b1);
-    if (moves.length <= 1) return moves;
-  
-    const isMax = (turnColor === aiColor);
-  
-    // 只做 1-ply 排序：對每個落子 m，考慮 CAPTURE_BRANCH 個提子選擇
-    const scored = moves.map(m => {
-      const afterPlace = b1.slice();
-      afterPlace[m] = turnColor;
-  
-      const squares = aiFindFullSquares(afterPlace, turnColor);
-      const captureChoices = (squares.length === 0) ? [null] : squares.slice(0, CAPTURE_BRANCH);
-  
-      // 這一步的「提子選擇」會由當前玩家挑最有利的，所以：
-      // MAX 節點取最大評分；MIN 節點取最小評分（用 aiEval 作近似）
-      let best1 = isMax ? -Infinity : Infinity;
-  
-      for (const cap of captureChoices){
-        const st = aiSimTurn(b1, sB, sW, turnColor, m, cap);
-        const e = aiEval(st.b1, st.sB, st.sW, aiColor);
-  
-        if (isMax){
-          if (e > best1) best1 = e;
-        } else {
-          if (e < best1) best1 = e;
-        }
-      }
-  
-      return { m, best1 };
-    });
-  
-    scored.sort((A,B) => isMax ? (B.best1 - A.best1) : (A.best1 - B.best1));
-    return scored.map(x => x.m);
-  }
-  
-  function alphabeta(b1, sB, sW, turnColor, depth, alpha, beta, aiColor){
-    if (aiIsTerminal(sB, sW) || depth <= 0){
-      // 終局：AI 贏/輸給超大分，避免「差一步贏卻下無意義」
-      if (scoreOf(aiColor, sB, sW) >= TARGET) return  999999;
-      if (scoreOf(other(aiColor), sB, sW) >= TARGET) return -999999;
-      return aiEval(b1, sB, sW, aiColor);
-    }
-
-    let moves = aiCandidateMoves(b1);
-    if (moves.length === 0) return aiEval(b1, sB, sW, aiColor);
-    
-    // ✅ 1-ply move ordering（建議只在 depth>=2 做，效果更好也比較不浪費）
-    if (depth >= 2) {
-      moves = orderMovesBy1Ply(b1, sB, sW, turnColor, depth, alpha, beta, aiColor);
-    }
-    
-    const isMax = (turnColor === aiColor);
-    let best = isMax ? -Infinity : Infinity;
-
-    for (const m of moves){
-      const afterPlace = b1.slice();
-      afterPlace[m] = turnColor;
-      const squares = aiFindFullSquares(afterPlace, turnColor);
-
-      const captureChoices = (squares.length === 0)
-        ? [null]
-        : squares.slice(0, CAPTURE_BRANCH);
-
-      for (const cap of captureChoices){
-        const st = aiSimTurn(b1, sB, sW, turnColor, m, cap);
-        const v = alphabeta(st.b1, st.sB, st.sW, st.nextTurn, depth - 1, alpha, beta, aiColor);
-
-        if (isMax){
-          if (v > best) best = v;
-          if (best > alpha) alpha = best;
-          if (alpha >= beta) return best;
-        } else {
-          if (v < best) best = v;
-          if (best < beta) beta = best;
-          if (alpha >= beta) return best;
-        }
-      }
-    }
-    return best;
-  }
-
-  function aiPickBestMove(aiColor){
-    const b1 = flattenBoard2D(board);
-    let moves = aiCandidateMoves(b1);
-    moves = orderMovesBy1Ply(b1, scoreB, scoreW, aiColor, CPU_PLY, -Infinity, Infinity, aiColor);
-    if (moves.length === 0) return null;
-
-    let bestMove = moves[0];
-    let bestVal = -Infinity;
-
-    for (const m of moves){
-      const afterPlace = b1.slice();
-      afterPlace[m] = aiColor;
-
-      const squares = aiFindFullSquares(afterPlace, aiColor);
-      const captureChoices = (squares.length === 0)
-        ? [null]
-        : squares.slice(0, CAPTURE_BRANCH);
-
-      for (const cap of captureChoices){
-        const st = aiSimTurn(b1, scoreB, scoreW, aiColor, m, cap);
-        const v = alphabeta(st.b1, st.sB, st.sW, st.nextTurn, CPU_PLY-1, -Infinity, Infinity, aiColor);
-        if (v > bestVal){
-          bestVal = v;
-          bestMove = m;
-        }
-      }
-    }
-    return xyOf(bestMove);
-  }
-
-  // ===== game flow: human buttons =====
-  btnSkipCapture.addEventListener("click", () => {
-    if (phase !== "capture" || turn !== HUMAN_COLOR) return;
-    if (availableSquares.length > 0) return; // 強制提子：有正方形就不能跳過
-
-    captureDoneThisTurn = true;
-    selectedSquareKey = null;
-    renderSquares([]);
-    logLine(`${turnName(turn)} 跳過提子。`);
-
-    if (!isGameOver()){
-      setTimeout(() => endTurn(), 200);
-    }
-  });
-
-  btnCaptureSquare.addEventListener("click", () => {
-    if (phase !== "capture" || turn !== HUMAN_COLOR) return;
-    if (captureDoneThisTurn) return;
-    if (availableSquares.length === 0) return;
-    if (!selectedSquareKey) return;
-
-    const sq = availableSquares.find(s => s.key === selectedSquareKey);
-    if (!sq) return;
-
-    // remove 4 stones (of current turn)
-    sq.cells.forEach(c => { if (board[c.y][c.x] === turn) board[c.y][c.x] = 0; });
-
-    addScore(turn, sq.area);
-    captureDoneThisTurn = true;
-    pendingClearSquareMarkers = true;
-
-    logLine(`+${sq.area}`);
-    selectedSquareKey = null;
-
-    renderAll();
-    checkWinMaybe();
-
-    if (!isGameOver()){
-      setTimeout(() => endTurn(), 250);
-    }
-  });
-
-  btnRestart.addEventListener("click", () => resetGame());
-
-  // ===== role select =====
-  aiRadios.forEach(r => {
-    r.addEventListener("change", () => {
-      const v = aiRadios.find(x => x.checked)?.value || "white";
-      AI_COLOR = (v === "black") ? 1 : 2;
-      HUMAN_COLOR = other(AI_COLOR);
-      roleHint.textContent = `玩家＝${turnName(HUMAN_COLOR)}，AI＝${turnName(AI_COLOR)}`;
-      resetGame();
-    });
-  });
-
-  function resetGame(){
-    board = Array.from({length:N}, () => Array(N).fill(0));
-    turn = 1;
-    phase = "place";
-    placedThisTurn = false;
-    scoreB = 0; scoreW = 0;
-    availableSquares = [];
-    selectedSquareKey = null;
-    captureDoneThisTurn = false;
-    lastMove = null;
-    pendingClearSquareMarkers = false;
-    elLog.textContent = "";
-    clearSquareMarkers();
-    renderAll();
-
-    logLine(`新局開始：${turnName(1)}先。玩家＝${turnName(HUMAN_COLOR)}，AI＝${turnName(AI_COLOR)}。`);
-
-    // 若 AI 執黑：立刻讓 AI 先走
-    if (turn === AI_COLOR && !isGameOver()){
-      setTimeout(() => maybeAiAuto(), 120);
-    }
-  }
-
-  function renderAll(){
-    // draw stones
-    for (let y=0; y<N; y++){
-      for (let x=0; x<N; x++){
-        const c = cellEls[y][x];
-        c.innerHTML = "";
-        c.classList.remove("disabled","lastmove");
-        const v = board[y][x];
-        if (v === 1){
-          const s = document.createElement("div");
-          s.className = "stone black";
-          c.appendChild(s);
-        } else if (v === 2){
-          const s = document.createElement("div");
-          s.className = "stone white";
-          c.appendChild(s);
-        }
-      }
-    }
-
-    if (lastMove && inBoard(lastMove.x, lastMove.y)) cellEls[lastMove.y][lastMove.x].classList.add("lastmove");
-
-    // top pills
-    elPhaseText.textContent = (phase === "place") ? "下棋階段" : "提子階段";
-    elTurnText.textContent = `${turnName(turn)}回合`;
-    elTurnDot.className = "dot " + (turn === 1 ? "black" : "white");
-    elScoreB.textContent = scoreB;
-    elScoreW.textContent = scoreW;
-
-    // disable board interaction unless it's HUMAN's place phase and empty cell
-    for (let y=0; y<N; y++){
-      for (let x=0; x<N; x++){
-        const c = cellEls[y][x];
-        c.classList.remove("disabled");
-
-        if (phase === "place"){
-          if (board[y][x] !== 0 || placedThisTurn || turn !== HUMAN_COLOR){
-            c.classList.add("disabled");
-          }
-        } else {
-          c.classList.add("disabled"); // capture: use right panel
-        }
-      }
-    }
-
-    // right list only for HUMAN capture phase
-    if (phase === "capture" && turn === HUMAN_COLOR){
-      availableSquares = findSquares2D(HUMAN_COLOR);
-      renderSquares(availableSquares);
-      elSqCount.textContent = availableSquares.length;
-    } else {
-      renderSquares([]);
-      elSqCount.textContent = 0;
-    }
-
-    updateButtons();
-  }
-
-  function updateButtons(){
-    const isHumanCapture = (phase === "capture" && turn === HUMAN_COLOR && !captureDoneThisTurn);
-    const mustCapture = isHumanCapture && (availableSquares.length > 0);
-
-    btnCaptureSquare.disabled = !(isHumanCapture && mustCapture && !!selectedSquareKey);
-    btnSkipCapture.disabled = !(isHumanCapture && !mustCapture);
-  }
-
-  function onCellClick(x,y){
-    if (turn !== HUMAN_COLOR) return;
-    if (phase !== "place") return;
-    if (placedThisTurn) return;
-    if (board[y][x] !== 0) return;
-
-    // 下一次落子才清掉提子標記
-    if (pendingClearSquareMarkers) {
-      clearSquareMarkers();
-      pendingClearSquareMarkers = false;
-    } else {
-      clearSquareMarkers();
-    }
-
-    board[y][x] = HUMAN_COLOR;
-    lastMove = {x,y};
-    placedThisTurn = true;
-
-    logLine(`${turnName(HUMAN_COLOR)} (${x+1},${y+1})`);
-
-    phase = "capture";
-    captureDoneThisTurn = false;
-    selectedSquareKey = null;
-    renderAll();
-
-    // 玩家落子後若無可提 -> 自動結束回合
-    if (availableSquares.length === 0 && !isGameOver()){
-      setTimeout(() => endTurn(), 200);
-    }
-  }
-
-  function endTurn(){
-    phase = "place";
-    placedThisTurn = false;
-    captureDoneThisTurn = false;
-    selectedSquareKey = null;
-
-    turn = other(turn);
-    renderAll();
-    checkWinMaybe();
-
-    if (!isGameOver() && turn === AI_COLOR){
-      maybeAiAuto();
-    }
-  }
-
-  function maybeAiAuto(){
-    if (turn !== AI_COLOR) return;
-
-    setTimeout(() => {
-      aiPlaceAndMaybeCapture();
-    }, 200);
-  }
-
-  function aiPlaceAndMaybeCapture(){
-    // AI 落子前：若上一手提子留下標記，現在清掉（保留到「下一次落子」）
-    if (pendingClearSquareMarkers) {
-      clearSquareMarkers();
-      pendingClearSquareMarkers = false;
-    } else {
-      clearSquareMarkers();
-    }
-
-    // 1) place
-    const best = aiPickBestMove(AI_COLOR);
-    if (!best){
-      logLine("棋盤已滿。");
-      return;
-    }
-
-    board[best.y][best.x] = AI_COLOR;
-    lastMove = {x: best.x, y: best.y};
-    logLine(`${turnName(AI_COLOR)}AI (${best.x+1},${best.y+1})`);
-    renderAll();
-
-    // 2) capture phase (forced if exists)
-    phase = "capture";
-    captureDoneThisTurn = false;
-    selectedSquareKey = null;
-
-    const b1 = flattenBoard2D(board);
-    const squares = aiFindFullSquares(b1, AI_COLOR);
-
-    if (squares.length === 0){
-      captureDoneThisTurn = true;
-      renderAll();
-      checkWinMaybe();
-      if (!isGameOver()) setTimeout(() => endTurn(), 180);
-      return;
-    }
-
-    // AI 提子：取最大面積（你也可以改成：在 squares.slice(0,K) 裡再用 eval 選）
-    const sq = squares[0];
-    for (const id of sq.idxs){
-      const {x,y} = xyOf(id);
-      if (board[y][x] === AI_COLOR) board[y][x] = 0;
-    }
-    addScore(AI_COLOR, sq.area);
-
-    clearSquareMarkers();
-    markSquareCorners(sq.cells);
-    pendingClearSquareMarkers = true;
-
-    logLine(`+${sq.area}`);
-    captureDoneThisTurn = true;
-
-    renderAll();
-    checkWinMaybe();
-    if (!isGameOver()) setTimeout(() => endTurn(), 220);
-  }
-
-  function addScore(color, delta){
-    if (color === 1) scoreB += delta;
-    else scoreW += delta;
-    elScoreB.textContent = scoreB;
-    elScoreW.textContent = scoreW;
-  }
-
-  function checkWinMaybe(){
-    if (scoreB >= TARGET || scoreW >= TARGET){
-      const winner = (scoreB >= TARGET) ? "黑方" : "白方";
-      logLine(`\n🏁 ${winner} 先達到 ${TARGET} 分，獲勝！`);
-      for (let y=0; y<N; y++) for (let x=0; x<N; x++) cellEls[y][x].classList.add("disabled");
-      btnCaptureSquare.disabled = true;
-      btnSkipCapture.disabled = true;
-    }
-  }
-  function isGameOver(){
-    return scoreB >= TARGET || scoreW >= TARGET;
-  }
-
-  // ===== Find squares for UI list (2D) =====
-  function findSquares2D(color){
-    const pts = [];
-    for (let y=0; y<N; y++) for (let x=0; x<N; x++) if (board[y][x] === color) pts.push({x,y});
-    const has = new Set(pts.map(p => keyXY(p.x,p.y)));
-
-    const sqMap = new Map();
-    for (let i=0; i<pts.length; i++){
-      for (let j=0; j<pts.length; j++){
-        if (i === j) continue;
-        const p = pts[i], q = pts[j];
-        const dx = q.x - p.x, dy = q.y - p.y;
-        if (dx === 0 && dy === 0) continue;
-
-        for (const [rx, ry] of [[-dy, dx],[dy, -dx]]){
-          const r = {x: p.x + rx, y: p.y + ry};
-          const s = {x: q.x + rx, y: q.y + ry};
-          if (!inBoard(r.x,r.y) || !inBoard(s.x,s.y)) continue;
-          if (!has.has(keyXY(r.x,r.y)) || !has.has(keyXY(s.x,s.y))) continue;
-
-          const cells = [p,q,r,s].map(z => ({x:z.x,y:z.y}));
-          const canon = cells.map(z => keyXY(z.x,z.y)).sort().join("|");
-          const area = dx*dx + dy*dy;
-          if (!sqMap.has(canon)) sqMap.set(canon, { cells, area, key: canon });
-        }
-      }
-    }
-    return Array.from(sqMap.values()).sort((a,b) => b.area - a.area);
-  }
-
-  function renderSquares(squares){
-    elSqList.innerHTML = "";
-    if (!squares || squares.length === 0){
-      const empty = document.createElement("div");
-      empty.className = "item";
-      empty.style.cursor = "default";
-      empty.style.color = "var(--muted)";
-      empty.textContent = (phase === "capture" && turn === HUMAN_COLOR) ? "（沒有可用正方形）" : "（回合中才會顯示）";
-      elSqList.appendChild(empty);
-      return;
-    }
-
-    squares.forEach((sq, idx) => {
-      const it = document.createElement("div");
-      it.className = "item" + (sq.key === selectedSquareKey ? " sel" : "");
-
-      const left = document.createElement("div");
-      left.textContent = `#${idx+1} 面積 ${sq.area}`;
-
-      const right = document.createElement("span");
-      right.className = "badge";
-      right.textContent = sq.cells.slice().sort((a,b)=> (a.y-b.y)||(a.x-b.x)).map(c=>`(${c.x+1},${c.y+1})`).join(" ");
-
-      it.appendChild(left);
-      it.appendChild(right);
-
-      it.addEventListener("click", () => {
-        if (phase !== "capture" || turn !== HUMAN_COLOR) return;
-        if (captureDoneThisTurn) return;
-        if (availableSquares.length === 0) return;
-
-        selectedSquareKey = sq.key;
-        clearSquareMarkers();
-        markSquareCorners(sq.cells);
-
-        renderSquares(availableSquares);
-        updateButtons();
-      });
-
-      elSqList.appendChild(it);
-    });
-  }
-
-  // init roles + game
-  roleHint.textContent = `玩家＝${turnName(HUMAN_COLOR)}，AI＝${turnName(AI_COLOR)}`;
-  resetGame();
+  return squares.sort((a, b) => b.area - a.area);
 })();
+
+/**
+ * GAME STATE
+ */
+let b1 = 0n; // Black stones
+let b2 = 0n; // White stones
+let score = [0, 0, 0];
+let turn = 1;
+let phase = 'place'; // 'place' | 'capture'
+let lastMoveIdx = -1;
+let availableSq = [];
+
+/**
+ * CORE LOGIC
+ */
+function getAvailableSquares(board) {
+  return ALL_SQUARES.filter(sq => (board & sq.mask) === sq.mask);
+}
+
+function evaluate(black, white, s1, s2) {
+  let scoreDiff = (s1 - s2) * 10;
+  if (AI_COLOR === 2) scoreDiff = -scoreDiff;
+
+  // Popcount (number of stones) - Simplified for BigInt
+  const countSetBits = (n) => {
+    let count = 0;
+    while (n > 0n) { n &= (n - 1n); count++; }
+    return count;
+  };
+
+  // Threat detection (3 out of 4 bits)
+  const getThreats = (board, oppBoard) => {
+    let t = 0;
+    for (const sq of ALL_SQUARES) {
+      if ((oppBoard & sq.mask) === 0n) { // No opponent stones blocking
+        let mine = countSetBits(board & sq.mask);
+        if (mine === 3) t += sq.area;
+      }
+    }
+    return t;
+  };
+
+  let threats = getThreats(white, black) - getThreats(black, white);
+  if (AI_COLOR === 1) threats = -threats;
+
+  return scoreDiff + threats;
+}
+
+// Alpha-Beta Search
+function minimax(black, white, s1, s2, depth, alpha, beta, isMax, color) {
+  if (s1 >= TARGET) return isMax ? -99999 : 99999;
+  if (s2 >= TARGET) return isMax ? 99999 : -99999;
+  if (depth === 0) return evaluate(black, white, s1, s2);
+
+  const occupied = black | white;
+  if (occupied === (1n << 81n) - 1n) return evaluate(black, white, s1, s2);
+
+  let moves = [];
+  for (let i = 0; i < SIZE; i++) {
+    if (!((occupied >> BigInt(i)) & 1n)) moves.push(i);
+  }
+  
+  // Heuristic: move ordering (center first)
+  moves.sort((a, b) => {
+    const dist = (idx) => Math.abs(Math.floor(idx/N)-4) + Math.abs((idx%N)-4);
+    return dist(a) - dist(b);
+  });
+
+  if (isMax) {
+    let maxEval = -Infinity;
+    for (let m of moves.slice(0, 15)) { // Branching factor reduction
+      let nb = color === 1 ? black | bit(m) : black;
+      let nw = color === 2 ? white | bit(m) : white;
+      let ns1 = s1, ns2 = s2;
+
+      let sqs = getAvailableSquares(color === 1 ? nb : nw);
+      if (sqs.length > 0) {
+        let bestSq = sqs[0]; // Greedy capture
+        if (color === 1) { nb &= ~bestSq.mask; ns1 += bestSq.area; }
+        else { nw &= ~bestSq.mask; ns2 += bestSq.area; }
+      }
+      
+      let ev = minimax(nb, nw, ns1, ns2, depth - 1, alpha, beta, false, 3 - color);
+      maxEval = Math.max(maxEval, ev);
+      alpha = Math.max(alpha, ev);
+      if (beta <= alpha) break;
+    }
+    return maxEval;
+  } else {
+    let minEval = Infinity;
+    for (let m of moves.slice(0, 15)) {
+      let nb = color === 1 ? black | bit(m) : black;
+      let nw = color === 2 ? white | bit(m) : white;
+      let ns1 = s1, ns2 = s2;
+
+      let sqs = getAvailableSquares(color === 1 ? nb : nw);
+      if (sqs.length > 0) {
+        let bestSq = sqs[0];
+        if (color === 1) { nb &= ~bestSq.mask; ns1 += bestSq.area; }
+        else { nw &= ~bestSq.mask; ns2 += bestSq.area; }
+      }
+
+      let ev = minimax(nb, nw, ns1, ns2, depth - 1, alpha, beta, true, 3 - color);
+      minEval = Math.min(minEval, ev);
+      beta = Math.min(beta, ev);
+      if (beta <= alpha) break;
+    }
+    return minEval;
+  }
+}
+
+/**
+ * UI & INTERACTION
+ */
+const elBoard = document.getElementById('board');
+const elLog = document.getElementById('log');
+const elSqSelect = document.getElementById('sqSelect');
+const btnCapture = document.getElementById('btnCapture');
+
+function initBoard() {
+  elBoard.innerHTML = '';
+  for (let i = 0; i < SIZE; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.onclick = () => handleCellClick(i);
+    elBoard.appendChild(cell);
+  }
+}
+
+function render() {
+  const cells = elBoard.children;
+  for (let i = 0; i < SIZE; i++) {
+    cells[i].innerHTML = '';
+    cells[i].className = 'cell';
+    if ((b1 >> BigInt(i)) & 1n) {
+      const s = document.createElement('div');
+      s.className = 'stone black';
+      cells[i].appendChild(s);
+    } else if ((b2 >> BigInt(i)) & 1n) {
+      const s = document.createElement('div');
+      s.className = 'stone white';
+      cells[i].appendChild(s);
+    }
+    if (i === lastMoveIdx) cells[i].classList.add('last-move');
+  }
+
+  document.getElementById('score1').innerText = score[1];
+  document.getElementById('score2').innerText = score[2];
+  document.getElementById('status').innerText = (turn === 1 ? "黑方" : "白方") + (phase === 'place' ? "下棋中" : "待提子");
+
+  // Highlight selected square
+  const selectedIdx = elSqSelect.selectedIndex;
+  if (selectedIdx >= 0 && availableSq[selectedIdx]) {
+    availableSq[selectedIdx].indices.forEach(idx => {
+      cells[idx].classList.add('highlight-sq');
+    });
+  }
+}
+
+function log(msg) {
+  elLog.innerHTML += `> ${msg}<br>`;
+  elLog.scrollTop = elLog.scrollHeight;
+}
+
+async function handleCellClick(i) {
+  if (turn !== HUMAN_COLOR || phase !== 'place') return;
+  if (((b1 | b2) >> BigInt(i)) & 1n) return;
+
+  makeMove(i);
+  
+  if (phase === 'capture' && availableSq.length === 0) {
+    endTurn();
+  }
+}
+
+function makeMove(i) {
+  if (turn === 1) b1 |= bit(i); else b2 |= bit(i);
+  lastMoveIdx = i;
+  log(`${turn === 1 ? '黑' : '白'}落子: (${(i%N)+1}, ${Math.floor(i/N)+1})`);
+  
+  availableSq = getAvailableSquares(turn === 1 ? b1 : b2);
+  if (availableSq.length > 0) {
+    phase = 'capture';
+    updateSqList();
+  } else {
+    phase = 'place';
+  }
+  render();
+  checkWin();
+}
+
+function updateSqList() {
+  elSqSelect.innerHTML = '';
+  availableSq.forEach((sq, idx) => {
+    const opt = document.createElement('option');
+    opt.value = idx;
+    opt.text = `正方形 #${idx+1} (面積: ${sq.area})`;
+    elSqSelect.appendChild(opt);
+  });
+  btnCapture.disabled = availableSq.length === 0;
+}
+
+btnCapture.onclick = () => {
+  const idx = elSqSelect.selectedIndex;
+  if (idx < 0) return;
+  
+  const sq = availableSq[idx];
+  if (turn === 1) b1 &= ~sq.mask; else b2 &= ~sq.mask;
+  score[turn] += sq.area;
+  log(`${turn === 1 ? '黑' : '白'}提子! 分數 +${sq.area}`);
+  
+  phase = 'place';
+  endTurn();
+};
+
+elSqSelect.onchange = render;
+
+function endTurn() {
+  turn = 3 - turn;
+  phase = 'place';
+  availableSq = [];
+  updateSqList();
+  render();
+  
+  if (turn === AI_COLOR) {
+    setTimeout(doAiMove, 500);
+  }
+}
+
+function doAiMove() {
+  log("AI 思考中...");
+  let bestVal = -Infinity;
+  let bestMove = -1;
+  
+  const occupied = b1 | b2;
+  let moves = [];
+  for (let i = 0; i < SIZE; i++) {
+    if (!((occupied >> BigInt(i)) & 1n)) moves.push(i);
+  }
+
+  // Find best move using minimax
+  for (let m of moves.slice(0, 20)) {
+    let nb = AI_COLOR === 1 ? b1 | bit(m) : b1;
+    let nw = AI_COLOR === 2 ? b2 | bit(m) : b2;
+    let ns1 = score[1], ns2 = score[2];
+
+    let sqs = getAvailableSquares(AI_COLOR === 1 ? nb : nw);
+    if (sqs.length > 0) {
+      if (AI_COLOR === 1) { nb &= ~sqs[0].mask; ns1 += sqs[0].area; }
+      else { nw &= ~sqs[0].mask; ns2 += sqs[0].area; }
+    }
+
+    let val = minimax(nb, nw, ns1, ns2, 3, -Infinity, Infinity, false, 3 - AI_COLOR);
+    if (val > bestVal) {
+      bestVal = val;
+      bestMove = m;
+    }
+  }
+
+  if (bestMove !== -1) {
+    makeMove(bestMove);
+    if (phase === 'capture') {
+      // AI always picks the largest square
+      const sq = availableSq[0];
+      if (turn === 1) b1 &= ~sq.mask; else b2 &= ~sq.mask;
+      score[turn] += sq.area;
+      log(`AI 提子: +${sq.area}`);
+      phase = 'place';
+      endTurn();
+    } else {
+      endTurn();
+    }
+  }
+}
+
+function checkWin() {
+  if (score[1] >= TARGET || score[2] >= TARGET) {
+    const winner = score[1] >= TARGET ? "黑方" : "白方";
+    alert(`遊戲結束! ${winner} 獲勝!`);
+    resetGame();
+  }
+}
+
+function resetGame() {
+  b1 = 0n; b2 = 0n;
+  score = [0, 0, 0];
+  turn = 1;
+  phase = 'place';
+  lastMoveIdx = -1;
+  elLog.innerHTML = '';
+  log("遊戲重置");
+  render();
+  updateSqList();
+}
+
+initBoard();
+resetGame();
 </script>
+
 </body>
 </html>
